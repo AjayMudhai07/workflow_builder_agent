@@ -4,15 +4,15 @@ from ira.tools.csv_tools import (
     analyze_csv_structure,
     get_csv_summary,
     validate_column_references,
-)
-from ira.tools.code_tools import (
-    execute_python_code,
-    validate_code_syntax,
-    preview_dataframe,
+    get_column_data_preview,
+    compare_csv_schemas,
+    detect_data_quality_issues,
 )
 from ira.tools.validation_tools import (
     validate_business_logic,
     validate_workflow_config,
+    validate_column_operations,
+    check_analysis_feasibility,
 )
 
 __all__ = [
@@ -20,11 +20,12 @@ __all__ = [
     "analyze_csv_structure",
     "get_csv_summary",
     "validate_column_references",
-    # Code tools
-    "execute_python_code",
-    "validate_code_syntax",
-    "preview_dataframe",
+    "get_column_data_preview",
+    "compare_csv_schemas",
+    "detect_data_quality_issues",
     # Validation tools
     "validate_business_logic",
     "validate_workflow_config",
+    "validate_column_operations",
+    "check_analysis_feasibility",
 ]
