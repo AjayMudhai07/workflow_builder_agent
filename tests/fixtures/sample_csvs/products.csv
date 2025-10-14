@@ -1,0 +1,9 @@
+product_id,product_name,category,supplier,cost_price,list_price,stock_quantity,reorder_level,discontinued
+P001,Widget A,Electronics,Supplier Inc,15.00,29.99,150,20,No
+P002,Widget B,Electronics,Supplier Inc,20.00,39.99,200,30,No
+P003,Gadget X,Home,Home Goods Co,25.00,49.99,100,15,No
+P004,Tool Y,Tools,Tool Supplier,50.00,99.99,75,10,No
+P005,Device Z,Electronics,Tech Supply,40.00,79.99,120,25,No
+P006,Widget C,Electronics,Supplier Inc,18.00,34.99,0,20,Yes
+P007,Gadget Y,Home,Home Goods Co,30.00,59.99,80,15,No
+P008,Tool X,Tools,Tool Supplier,45.00,89.99,60,10,No
