@@ -6,7 +6,7 @@ Tests the functionality of CSV analysis, validation, and summarization tools.
 
 import pytest
 from pathlib import Path
-from ira.tools.csv_tools import (
+from ira_builder.tools.csv_tools import (
     analyze_csv_structure,
     get_csv_summary,
     validate_column_references,
@@ -14,7 +14,7 @@ from ira.tools.csv_tools import (
     compare_csv_schemas,
     detect_data_quality_issues,
 )
-from ira.exceptions.errors import ValidationException
+from ira_builder.exceptions.errors import ValidationException
 
 
 # Get the path to test fixtures

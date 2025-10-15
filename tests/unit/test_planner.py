@@ -15,12 +15,12 @@ import pytest
 from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
-from ira.agents.planner import (
+from ira_builder.agents.planner import (
     PlannerAgent,
     create_planner_agent,
     PLANNER_INSTRUCTIONS,
 )
-from ira.exceptions.errors import AgentException
+from ira_builder.exceptions.errors import AgentException
 
 
 class TestPlannerAgentInitialization:

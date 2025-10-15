@@ -17,8 +17,8 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from ira.agents.planner import create_planner_agent, PlannerAgent
-from ira.utils.logger import setup_logging, get_logger
+from ira_builder.agents.planner import create_planner_agent, PlannerAgent
+from ira_builder.utils.logger import setup_logging, get_logger
 
 # Setup logging
 setup_logging(log_level="INFO", pretty_print=True)
