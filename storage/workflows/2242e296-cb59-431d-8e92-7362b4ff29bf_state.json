@@ -1,0 +1,22 @@
+{
+  "workflow_name": "Total Inventory by Community and Rev Status",
+  "workflow_description": "This workflow merges two inventory datasets to create a comprehensive view of property availability across communities. It consolidates property names and status information from multiple sources, then calculates key metrics including available unit counts for specific properties. The workflow performs an outer join on community, building, type, unit model, and property type to ensure no inventory records are lost during the merge. It creates boolean flags to identify target properties (like \"Address Marjan Island\") and their availability status, ultimately producing a unified dataset with standardized columns for pricing, status, and inventory counts. The output enables stakeholders to quickly analyze total available inventory by filtering on consolidated status and community attributes.",
+  "csv_filepaths": [
+    "data/uploads/2242e296-cb59-431d-8e92-7362b4ff29bf/assumptions.csv",
+    "data/uploads/2242e296-cb59-431d-8e92-7362b4ff29bf/inventory_data.csv"
+  ],
+  "phase": "planning",
+  "started_at": "2025-10-16T06:43:19.558195",
+  "completed_at": null,
+  "planner_questions_asked": 3,
+  "current_question": "{\n  \"question_type\": \"multiple_choice\",\n  \"context\": \"We will create two slices from inventory_data: Slice 1 with Property Type = 'Sale' and Slice 2 with Property Type = 'Blocked'. To proceed, we need to confirm the exact join keys for the outer join between these slices.\",\n  \"question\": \"Which columns should we use as the join keys for the outer join between the 'Sale' and 'Blocked' slices?\",\n  \"options\": [\n    \"[Community, Building, Type, Unit Model] (exclude Property Type so 'Sale' and 'Blocked' align on the same units)\",\n    \"[Community, Building, Type, Unit Model, Property Type] (include Property Type; 'Sale' records will not match 'Blocked')\",\n    \"[Property Name, Community, Building, Type, Unit Model] (add Property Name for tighter alignment)\",\n    \"[Community, Building, Type, Unit Model, Sales Rooms] (include bedroom count in the key)\",\n    \"Other (please specify)\"\n  ]\n}",
+  "business_logic_plan": null,
+  "plan_approved": false,
+  "generated_code": null,
+  "code_execution_iterations": 0,
+  "output_file_path": null,
+  "output_approved": false,
+  "output_refinement_iterations": 0,
+  "error_message": null,
+  "is_successful": false
+}

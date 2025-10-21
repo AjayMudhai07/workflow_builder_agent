@@ -1,0 +1,22 @@
+{
+  "workflow_name": "Total Inventory by Community and Rev Status",
+  "workflow_description": "This workflow merges two inventory datasets to create a comprehensive view of property availability across communities. It consolidates property names and status information from multiple sources, then calculates key metrics including available unit counts for specific properties. The workflow performs an outer join on community, building, type, unit model, and property type to ensure no inventory records are lost during the merge. It creates boolean flags to identify target properties (like \"Address Marjan Island\") and their availability status, ultimately producing a unified dataset with standardized columns for pricing, status, and inventory counts. The output enables stakeholders to quickly analyze total available inventory by filtering on consolidated status and community attributes.",
+  "csv_filepaths": [
+    "data/uploads/Total Inventory by Community and Rev Status_20251016_060918/assumptions.csv",
+    "data/uploads/Total Inventory by Community and Rev Status_20251016_060918/inventory_data.csv"
+  ],
+  "phase": "planning",
+  "started_at": "2025-10-16T06:09:18.563808",
+  "completed_at": null,
+  "planner_questions_asked": 0,
+  "current_question": "Based on the provided data, we\u2019ll need a clear business rule to compute a consolidated availability flag from inventory_data.csv, primarily using Status and Property Type (examples in your data include Status values like SOLD, Available, Blocked and Property Type values like Sale, Rent, Blocked).\n\nHow should we define an \u201cAvailable\u201d unit for the consolidated availability flag?\n\nPlease select one option:\nA) Status == \"Available\" AND Property Type == \"Sale\"\nB) Status == \"Available\" AND Property Type in [\"Sale\", \"Rent\"]\nC) Status not in [\"SOLD\", \"Blocked\"] AND Property Type != \"Blocked\"\nD) Status == \"Available\" (ignore Property Type)\nE) Other (please specify)",
+  "business_logic_plan": null,
+  "plan_approved": false,
+  "generated_code": null,
+  "code_execution_iterations": 0,
+  "output_file_path": null,
+  "output_approved": false,
+  "output_refinement_iterations": 0,
+  "error_message": null,
+  "is_successful": false
+}

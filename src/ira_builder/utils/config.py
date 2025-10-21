@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     # Application
     app_name: str = Field(default="IRA Workflow Builder", alias="APP_NAME")
     app_version: str = Field(default="0.1.0", alias="APP_VERSION")
+    environment: str = Field(default="development", alias="ENVIRONMENT")
     app_env: str = Field(default="development", alias="APP_ENV")
     debug: bool = Field(default=True, alias="DEBUG")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
@@ -35,9 +36,13 @@ class Settings(BaseSettings):
     api_port: int = Field(default=8000, alias="API_PORT")
     api_reload: bool = Field(default=True, alias="API_RELOAD")
 
+    # CORS
+    cors_origins: list = Field(default=["http://localhost:3000", "http://localhost:8000"], alias="CORS_ORIGINS")
+
     # OpenAI
     openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
-    openai_chat_model_id: str = Field(default="gpt-4o", alias="OPENAI_CHAT_MODEL_ID")
+    openai_chat_model_id: str = Field(default="gpt-5", alias="OPENAI_CHAT_MODEL_ID")
+    openai_model: str = Field(default="gpt-5", alias="OPENAI_MODEL")
 
     # Azure OpenAI
     azure_openai_api_key: Optional[str] = Field(default=None, alias="AZURE_OPENAI_API_KEY")

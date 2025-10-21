@@ -41,8 +41,11 @@ You are an expert workflow designer specializing in data processing workflows. Y
 
 ## ⚠️ CRITICAL DIRECTIVES - READ THESE FIRST ⚠️
 
-**1. ALWAYS ANALYZE CSV FILES FIRST**
-Before asking ANY questions to the user, you MUST use your tools (analyze_csv_structure or get_csv_summary) to analyze ALL provided CSV files. Review columns, data types, and sample values. Only after understanding the data structure should you ask your first question.
+**1. CHECK YOUR MEMORY FOR CSV ANALYSIS FIRST**
+⚠️ BEFORE doing ANYTHING, check if you see "CSV Data Structure (ALREADY ANALYZED - IN YOUR MEMORY)" in your context above.
+
+- ✅ **IF CSV IS ALREADY IN YOUR MEMORY**: DO NOT call analyze_csv_structure() or get_csv_summary(). Simply reference the columns from your memory and start asking business logic questions.
+- ❌ **IF CSV IS NOT in your memory**: THEN use your tools (analyze_csv_structure or get_csv_summary) to analyze the CSV files before asking questions.
 
 **2. NEVER ASK ABOUT DATA PREPROCESSING, FORMATS, OR CONVERSIONS**
 
@@ -92,38 +95,46 @@ The following aspects are FIXED and should NOT be questioned:
 
 # Conversation Guidelines
 
-## MANDATORY FIRST STEP: CSV Analysis
+## MANDATORY FIRST STEP: Check Memory for CSV Analysis
 
-**CHECK YOUR MEMORY FIRST:**
-- If you see "CSV Data Structure (ALREADY ANALYZED - IN YOUR MEMORY)" in your context, the CSV analysis is ALREADY DONE
-- DO NOT call analyze_csv_structure() or get_csv_summary() if the data is already in your memory
-- Simply reference the columns from your memory when formulating questions
+**⚠️ STEP 1: CHECK YOUR MEMORY/CONTEXT FIRST (HIGHEST PRIORITY)**
 
-**IF CSV is NOT yet in your memory, THEN:**
+Look for "CSV Data Structure (ALREADY ANALYZED - IN YOUR MEMORY)" in your context above.
 
-1. Use `analyze_csv_structure(filepath)` or `get_csv_summary(filepaths)` to understand the data
-2. Review all available columns, data types, and sample values
-3. Identify which columns are likely relevant to the workflow description
-4. Only AFTER analyzing the CSV files should you ask your first question
+**IF YOU SEE IT:**
+- ✅ The CSV analysis is ALREADY DONE and available in your memory
+- ✅ DO NOT call analyze_csv_structure() or get_csv_summary()
+- ✅ DO NOT ask the user "Which CSV files should I analyze?"
+- ✅ Simply reference the columns from your memory and START ASKING BUSINESS LOGIC QUESTIONS
 
-**DO NOT SKIP THIS STEP.** The user expects you to understand their data before asking questions.
+**IF YOU DO NOT SEE IT:**
+- ❌ CSV has NOT been analyzed yet
+- ❌ You MUST use `analyze_csv_structure(filepath)` or `get_csv_summary(filepaths)` to analyze the data
+- ❌ Review all available columns, data types, and sample values
+- ❌ Only AFTER analyzing should you ask your first question
+
+**CRITICAL:** If CSV analysis is already in your memory, DO NOT analyze again. The user expects you to USE the existing analysis.
 
 ## Question Format
 
-Ask **ONE question at a time** using this exact format:
+Ask **ONE question at a time** using this exact JSON format:
 
+```json
+{
+  "question_type": "multiple_choice",
+  "context": "[Brief context based on previous answers]",
+  "question": "[Single clear question referencing specific columns or logic]",
+  "options": [
+    "[Specific choice with column references]",
+    "[Specific choice with column references]",
+    "[Specific choice with column references]",
+    "[Specific choice with column references]",
+    "Other (please specify)"
+  ]
+}
 ```
-[Brief context based on previous answers]
 
-[Single clear question referencing specific columns or logic]
-
-Please select one option:
-A) [Specific choice with column references]
-B) [Specific choice with column references]
-C) [Specific choice with column references]
-D) [Specific choice with column references]
-E) Other (please specify)
-```
+**CRITICAL:** You MUST respond with ONLY the JSON object when asking a question. Do not include any additional text before or after the JSON.
 
 ## Requirements Gathering
 
@@ -188,33 +199,21 @@ When it's time to ask about the output dataframe:
    - What derived/calculated columns are needed? (e.g., Date Difference, Month/Quarter info)
    - What contextual columns help with investigation? (e.g., Vendor, Description, Reference)
 
-3. **PROPOSE THE OUTPUT** - Instead of asking "what columns do you want?", present your recommendation:
+3. **PROPOSE THE OUTPUT** - Present your recommendation in JSON format:
 
-```
-Based on our conversation about [workflow purpose], I recommend the output CSV should contain:
-
-**Identification Columns:**
-- [Column 1]: [Why it's needed]
-- [Column 2]: [Why it's needed]
-
-**Business Logic Columns:**
-- [Column 3]: [Why it's needed]
-- [Column 4]: [Why it's needed]
-
-**Context Columns:**
-- [Column 5]: [Why it's needed]
-
-**Calculated Columns:**
-- [Column 6]: [What it contains and why]
-
-This ensures each row in the output represents [what each row means] and provides all information needed for [investigation/review/action].
-
-Please select one option:
-A) This output structure looks perfect - proceed with this
-B) Add these additional columns: [let me specify]
-C) Remove some columns: [let me specify which ones]
-D) Modify the structure: [let me explain how]
-E) Other (please specify)
+```json
+{
+  "question_type": "multiple_choice",
+  "context": "Based on our conversation about [workflow purpose], I recommend the output CSV should contain:\n\n**Identification Columns:**\n- [Column 1]: [Why it's needed]\n- [Column 2]: [Why it's needed]\n\n**Business Logic Columns:**\n- [Column 3]: [Why it's needed]\n- [Column 4]: [Why it's needed]\n\n**Context Columns:**\n- [Column 5]: [Why it's needed]\n\n**Calculated Columns:**\n- [Column 6]: [What it contains and why]\n\nThis ensures each row in the output represents [what each row means] and provides all information needed for [investigation/review/action].",
+  "question": "Does this output structure look good to you?",
+  "options": [
+    "This output structure looks perfect - proceed with this",
+    "Add these additional columns: [let me specify]",
+    "Remove some columns: [let me specify which ones]",
+    "Modify the structure: [let me explain how]",
+    "Other (please specify)"
+  ]
+}
 ```
 
 **REMEMBER:** The goal is to generate a SINGLE CSV file that:
@@ -225,16 +224,32 @@ E) Other (please specify)
 
 ## Final Review Question (MANDATORY)
 
-Before generating the business logic plan, you MUST ask this final review question:
+Before generating the business logic plan, you MUST ask this final review question in JSON format:
 
-"Before I generate the complete business logic plan, is there anything else I should know? Any additional:
+```json
+{
+  "question_type": "multiple_choice",
+  "context": "We've discussed the business logic for your workflow",
+  "question": "Before I generate the complete business logic plan, is there anything else I should know?",
+  "options": [
+    "No, I think we've covered everything - please generate the plan",
+    "Yes, there are additional filtering criteria I want to add",
+    "Yes, there are specific exclusions or edge cases to consider",
+    "Yes, there are additional columns or calculations needed",
+    "Other (please specify)"
+  ]
+}
+```
 
-Please select one option:
-A) No, I think we've covered everything - please generate the plan
-B) Yes, there are additional filtering criteria I want to add
-C) Yes, there are specific exclusions or edge cases to consider
-D) Yes, there are additional columns or calculations needed
-E) Other (please specify)"
+**NOTE: Plan Generation Signal**
+
+When the user responds to the final review question indicating they're ready (e.g., "No, I think we've covered everything" or selecting option A), you should respond with EXACTLY this text:
+
+GENERATE_PLAN
+
+Do NOT generate the business logic plan yourself. Just respond with "GENERATE_PLAN" (without quotes) and the orchestrator will call a specialized method to generate the properly formatted HTML business logic plan.
+
+If the user provides additional requirements or feedback instead of confirming they're ready, continue asking clarifying questions as normal.
 
 ### Tools Available to You:
 
@@ -255,11 +270,10 @@ Use these tools to understand the data structure, but remember: NEVER ask about 
 
 Your workflow should follow this EXACT logical progression:
 
-**STEP 0: CSV Analysis (MANDATORY - BEFORE ANY QUESTIONS)**
-   - Use `analyze_csv_structure()` or `get_csv_summary()` to analyze ALL provided CSV files
-   - Review columns, data types, sample values
-   - Understand the data structure before asking questions
-   - **YOU MUST DO THIS FIRST - NO EXCEPTIONS**
+**STEP 0: Check Memory for CSV Analysis (MANDATORY - BEFORE ANY QUESTIONS)**
+   - ⚠️ CHECK YOUR CONTEXT: Is "CSV Data Structure (ALREADY ANALYZED - IN YOUR MEMORY)" present?
+   - ✅ IF YES: CSV is already analyzed - DO NOT analyze again, proceed to STEP 1
+   - ❌ IF NO: Use `analyze_csv_structure()` or `get_csv_summary()` to analyze the CSV files, THEN proceed to STEP 1
 
 **STEP 1: Business Logic Questions** (3-5 questions):
    - What determines an exception/result?
@@ -406,6 +420,11 @@ class CSVAnalysisMemory(ContextProvider):
         Returns:
             Context object with CSV analysis as additional instructions
         """
+        # Add detailed logging to debug context injection
+        logger.info(f"CSVAnalysisMemory.invoking() called")
+        logger.info(f"  - Has CSV analysis: {bool(self.csv_analysis)}")
+        logger.info(f"  - Has workflow context: {bool(self.workflow_context)}")
+
         if self.csv_analysis or self.workflow_context:
             # Build the context instructions
             context_parts = []
@@ -422,8 +441,13 @@ class CSVAnalysisMemory(ContextProvider):
 
             context_instructions = "\n".join(context_parts)
 
+            # Log what we're injecting (first 500 chars)
+            logger.info(f"  - Injecting context (length={len(context_instructions)} chars)")
+            logger.info(f"  - Context preview: {context_instructions[:500]}...")
+
             return Context(instructions=context_instructions)
 
+        logger.info("  - No context to inject (csv_analysis and workflow_context are None)")
         return Context()
 
     async def invoked(self, **kwargs):
@@ -467,7 +491,7 @@ class PlannerAgent:
     def __init__(
         self,
         chat_client: Optional[Any] = None,
-        model: str = "gpt-4o",
+        model: str = "gpt-5",
         temperature: float = 0.7,
         max_questions: int = 10,
     ):
@@ -476,7 +500,7 @@ class PlannerAgent:
 
         Args:
             chat_client: Optional chat client instance (OpenAI or Azure)
-            model: Model name to use (default: gpt-4o)
+            model: Model name to use (default: gpt-5)
             temperature: Temperature for generation (0.0-1.0)
             max_questions: Maximum questions to ask (default: 10)
         """
@@ -578,7 +602,19 @@ class PlannerAgent:
         Returns:
             PlannerResponseType enum value
         """
+        import json
+        import re
+
         content_lower = content.lower()
+
+        # Check if response is JSON (new question format)
+        json_match = re.search(r'\{[\s\S]*"question_type"[\s\S]*"options"[\s\S]*\}', content)
+        if json_match:
+            try:
+                json.loads(json_match.group())
+                return PlannerResponseType.QUESTION
+            except json.JSONDecodeError:
+                pass  # Not valid JSON, continue with other checks
 
         # Check for Business Logic Plan markers (enhanced detection)
         plan_markers = [
@@ -590,7 +626,12 @@ class PlannerAgent:
             "## **output dataframe structure**",
             "### workflow plan:",
             "**objective:**",
-            "**steps:**"
+            "**steps:**",
+            "<b>business logic plan:",  # HTML format
+            "<b>data source</b>",       # HTML format
+            "<b>requirements</b>",      # HTML format
+            "<b>business logic</b>",    # HTML format
+            "<b>output dataframe structure</b>"  # HTML format
         ]
 
         # Strong indicators of a plan
@@ -603,7 +644,7 @@ class PlannerAgent:
             ("load data" in content_lower and "output" in content_lower and len(content) > 500)):
             return PlannerResponseType.BUSINESS_LOGIC_PLAN
 
-        # Check for question markers (A-E options)
+        # Check for question markers (A-E options) - old format
         if ("please select one option:" in content_lower or
             "please select:" in content_lower) and (
             "\na)" in content_lower or "\nb)" in content_lower or
@@ -787,134 +828,161 @@ Let's begin by analyzing the CSV files!
         """
         Generate business logic document based on gathered information.
 
+        This method makes a direct LLM call (bypassing agent tools) since we're
+        just formatting the conversation into a structured document. The agent's
+        intelligence was already used during the conversation phase.
+
         Args:
             force: Force generation even if not all questions asked
 
         Returns:
-            Business logic document as markdown string
+            Business logic document as HTML string
 
         Example:
             >>> logic_doc = await planner.generate_business_logic()
             >>> print(logic_doc)
         """
-        logger.info("Generating business logic document")
+        logger.info("Generating business logic document via direct LLM call")
 
         if not force and self.questions_asked < 3:
             logger.warning(f"Only {self.questions_asked} questions asked. Recommend asking more.")
 
-        prompt = """
-Based on our conversation, please generate the complete Business Logic Plan now in MARKDOWN format.
+        # Extract just filenames from full paths
+        import os
+        filenames = [os.path.basename(fp) for fp in self.csv_filepaths]
 
-You MUST follow this EXACT structure:
+        # Build the system prompt with workflow context
+        system_prompt = f"""You are generating a Business Logic Plan document for FINANCE/AUDIT USERS based on a conversation.
 
-# Business Logic Plan
+**Workflow Context:**
+- Name: {self.workflow_name}
+- Description: {self.workflow_description}
+- CSV Files: {', '.join(filenames)}
 
-## **Workflow Purpose**
-[Clear description of what this workflow accomplishes and why it's needed]
+**IMPORTANT:** This document is for FINANCE and AUDIT professionals, NOT technical developers.
+- Focus on BUSINESS LOGIC and BUSINESS RULES
+- Do NOT include technical implementation details like file loading, parsing, or preprocessing
+- Describe WHAT should happen, not HOW to code it
 
-## **Required Files**
+You MUST follow this EXACT structure and format (use HTML bold tags as shown):
 
-Provide the required files in JSON format for easy parsing by the coder agent:
+<b>Business Logic Plan: {self.workflow_name}</b>
 
-```json
-[
-  {
-    "file_name": "filename1.csv",
-    "required_columns": [
-      "Column_Name_1",
-      "Column_Name_2",
-      "Column_Name_3"
-    ]
-  },
-  {
-    "file_name": "filename2.csv",
-    "required_columns": [
-      "Column_Name_4",
-      "Column_Name_5"
-    ]
-  }
-]
-```
+<b>Data Source</b>
 
-**Column Descriptions:**
-- **Column_Name_1**: [Description of what this column contains]
-- **Column_Name_2**: [Description of what this column contains]
-- **Column_Name_3**: [Description of what this column contains]
-[Continue for all required columns...]
+<b>{filenames[0] if len(filenames) > 0 else "data.csv"}</b>
+<b>Required Columns</b>: ["Column1", "Column2", "Column3", ...]
 
-## **Requirements**
-Conversation summary showing the questions asked and responses given:
+{f'''<b>{filenames[1]}</b>
+<b>Required Columns</b>: ["Column1", "Column2", ...]
+''' if len(filenames) > 1 else ''}
 
-**Q1: [Question asked by IRA]**
-- User Response: [What the user answered]
+<b>Business Requirements</b>
 
-**Q2: [Question asked by IRA]**
-- User Response: [What the user answered]
+<b>Q1</b>: [First question - just the question, NO options]
+<b>A1</b>: [User's answer]
 
-**Q3: [Question asked by IRA]**
-- User Response: [What the user answered]
+<b>Q2</b>: [Second question - just the question, NO options]
+<b>A2</b>: [User's answer]
 
-[Continue for all questions asked during the conversation...]
+[Continue for ALL questions...]
 
-## **Business Logic**
-Detailed step-by-step logic to generate the answer dataframe:
+<b>Business Logic</b>
 
-1. **Load Data:**
-   - [Describe data loading requirements]
+Describe the BUSINESS RULES in plain language for finance/audit users:
 
-2. **Filter Records:**
-   - [Describe filtering criteria based on conversation]
-   - [Include specific conditions, thresholds, comparisons]
+<b>Rule 1</b>: [Business rule from conversation - e.g., "Flag records where Document Date month-year is later than Posting Date month-year"]
 
-3. **Apply Business Rules:**
-   - [Describe each business rule in detail]
-   - [Include calculations, comparisons, logic gates]
+<b>Rule 2</b>: [Exception/exclusion rule - e.g., "Exclude entries containing 'reversal' in Document Header Text or Text fields"]
 
-4. **Create Derived Columns:**
-   - [List any calculated/derived columns and their formulas]
+<b>Rule 3</b>: [Threshold or criteria - e.g., "Include all amounts without minimum threshold"]
 
-5. **Final Dataset:**
-   - [Describe the final filtering and selection]
+<b>Rule 4</b>: [Derived calculation - e.g., "Calculate month difference between Document Date and Posting Date"]
 
-## **Output Dataframe Structure**
-List all columns in the output CSV with their descriptions:
+[Continue with all business rules and logic from the conversation...]
 
-| Column Name | Description | Source/Calculation |
-|-------------|-------------|-------------------|
-| [Column 1] | [What this column contains] | [From input / Calculated: formula] |
-| [Column 2] | [What this column contains] | [From input / Calculated: formula] |
-| [Column 3] | [What this column contains] | [From input / Calculated: formula] |
-[Continue for all output columns...]
+<b>Output Columns</b>
 
-**Note:** Each row in the output represents [what each row means - e.g., "one flagged exception transaction requiring review"].
+List each column with business-focused description:
+
+<b>Column1</b>: [What it contains and why it's needed for review]
+<b>Column2</b>: [What it contains and why it's needed for review]
+<b>Column3_Calculated</b>: [What it calculates and business meaning]
+
+[Continue for ALL output columns...]
 
 ---
 
-IMPORTANT:
-- Use the ACTUAL column names from the CSV files
-- Reference ALL questions and answers from our conversation in the Requirements section
-- Be specific and implementation-ready in the Business Logic section
-- Include both original columns and calculated columns in the Output Dataframe Structure
-- Validate that all referenced columns exist using your tools before generating
+CRITICAL FORMATTING RULES:
+1. **Data Source section:**
+   - Use ONLY the filename (e.g., "FBL3N.csv"), NOT the full path
+   - Do NOT include phrases like "List each required file and its columns:" or "Required File 1:"
+   - Just show: <b>filename.csv</b> followed by <b>Required Columns</b>: [...]
 
-Generate the document now.
-"""
+2. **Business Requirements section:**
+   - Do NOT include the phrase "List every question asked..."
+   - Extract ONLY the question text (no multiple choice options)
+   - Keep it concise: <b>Q#</b>: question, <b>A#</b>: answer
+
+3. **Business Logic section:**
+   - Focus on BUSINESS RULES, not technical steps
+   - NO file loading steps (e.g., "Load data from...")
+   - NO preprocessing steps (e.g., "Parse date columns", "Convert to datetime")
+   - NO technical implementation (e.g., "Create helper columns", "Build boolean mask")
+   - Describe WHAT business rules apply, not HOW to implement them
+   - Use language finance/audit users understand
+
+4. **Output Columns section:**
+   - Rename header to "Output Columns" (not "Output Dataframe Structure")
+   - Simple format: <b>ColumnName</b>: business description
+   - Explain WHY each column is useful for review/audit
+
+Generate the complete Business Logic Plan now following this exact format."""
+
+        user_prompt = """Based on our conversation above, generate the complete Business Logic Plan.
+
+Review the entire conversation history, extract all the requirements, and format them according to the structure provided in the system prompt.
+
+Output ONLY the Business Logic Plan with proper HTML formatting. Do not include any additional commentary."""
 
         try:
-            # Pass the thread to maintain conversation context
-            response = await self.agent.run(prompt, thread=self.thread)
+            # Create a temporary agent instance without tools for formatting task
+            # This is more efficient than using the full agent with tool-calling overhead
+            from agent_framework import ChatAgent
 
+            # Use the same chat client but without tools
+            formatting_agent = ChatAgent(
+                name="IRA-Plan-Formatter",
+                chat_client=self.agent.chat_client,
+                instructions=system_prompt,
+                tools=[],  # No tools needed for formatting
+            )
+
+            # Build the prompt with conversation history
+            full_prompt = "Conversation History:\n\n"
+            for msg in self.conversation_history:
+                role = msg["role"].upper()
+                content = str(msg["content"])
+                full_prompt += f"{role}: {content}\n\n"
+
+            full_prompt += f"\n{user_prompt}"
+
+            # Run the formatting agent
+            logger.info("Generating business logic plan using agent without tools")
+            plan_text = await formatting_agent.run(full_prompt)
+
+            # Record in conversation history
             self.conversation_history.append({
                 "role": "user",
-                "content": prompt,
+                "content": "Generate business logic plan",
             })
             self.conversation_history.append({
                 "role": "assistant",
-                "content": response,
+                "content": str(plan_text),
             })
 
             logger.info("Business logic document generated successfully")
-            return response
+            return str(plan_text)
 
         except Exception as e:
             logger.error(f"Error generating business logic: {str(e)}")
@@ -1011,7 +1079,7 @@ Provide the complete updated document.
 
 
 def create_planner_agent(
-    model: str = "gpt-4o",
+    model: str = "gpt-5",
     temperature: float = 0.7,
     max_questions: int = 10,
     use_azure: bool = False,
@@ -1032,7 +1100,7 @@ def create_planner_agent(
         AgentException: If configuration is invalid
 
     Example:
-        >>> planner = create_planner_agent(model="gpt-4o", temperature=0.7)
+        >>> planner = create_planner_agent(model="gpt-5", temperature=0.7)
         >>> response = planner.initialize_workflow(
         ...     "Sales Analysis",
         ...     "Analyze sales data",

@@ -97,6 +97,7 @@ class WorkflowState:
         # Planner phase
         self.planner_questions_asked = 0
         self.planner_conversation_history: List[Dict[str, str]] = []
+        self.current_question: Optional[str] = None
         self.business_logic_plan: Optional[str] = None
         self.plan_approved = False
 
@@ -125,6 +126,7 @@ class WorkflowState:
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "planner_questions_asked": self.planner_questions_asked,
+            "current_question": self.current_question,
             "business_logic_plan": self.business_logic_plan,
             "plan_approved": self.plan_approved,
             "generated_code": self.generated_code,
@@ -158,6 +160,7 @@ class WorkflowState:
         state.started_at = datetime.fromisoformat(data["started_at"]) if data["started_at"] else None
         state.completed_at = datetime.fromisoformat(data["completed_at"]) if data["completed_at"] else None
         state.planner_questions_asked = data["planner_questions_asked"]
+        state.current_question = data.get("current_question")
         state.business_logic_plan = data.get("business_logic_plan")
         state.plan_approved = data.get("plan_approved", False)
         state.generated_code = data.get("generated_code")
@@ -206,7 +209,8 @@ class IRAOrchestrator:
         workflow_description: str,
         csv_filepaths: List[str],
         output_filename: str = "result.csv",
-        model: str = "gpt-4o",
+        workflow_id: Optional[str] = None,
+        model: str = "gpt-5",
         max_planner_questions: int = 10,
         max_coder_iterations: int = 5,
         code_execution_timeout: int = 120,
@@ -223,6 +227,7 @@ class IRAOrchestrator:
             workflow_description: Description of what workflow should accomplish
             csv_filepaths: List of absolute paths to CSV files
             output_filename: Name for output file (default: result.csv)
+            workflow_id: Unique identifier for the workflow (optional, defaults to sanitized workflow_name)
             model: OpenAI model to use for both agents
             max_planner_questions: Maximum questions Planner can ask
             max_coder_iterations: Maximum code generation attempts
@@ -249,9 +254,12 @@ class IRAOrchestrator:
 
         self.state_dir.mkdir(parents=True, exist_ok=True)
 
-        # Sanitize workflow name for file path
-        safe_workflow_name = sanitize_filename(workflow_name)
-        self.state_file_path = self.state_dir / f"{safe_workflow_name}_state.json"
+        # Use workflow_id for state file path, or fall back to sanitized workflow_name
+        if workflow_id:
+            safe_workflow_id = sanitize_filename(workflow_id)
+        else:
+            safe_workflow_id = sanitize_filename(workflow_name)
+        self.state_file_path = self.state_dir / f"{safe_workflow_id}_state.json"
 
         # Callbacks for UI integration
         self.on_phase_change = on_phase_change
@@ -309,6 +317,7 @@ class IRAOrchestrator:
                 "content": str(response),
                 "timestamp": datetime.now().isoformat()
             })
+            self.state.current_question = str(response)
 
             # Detect response type
             response_type = self.planner._detect_response_type(str(response))
@@ -374,24 +383,47 @@ class IRAOrchestrator:
             })
             self.state.planner_questions_asked += 1
 
-            # Get next response from Planner
+            # Get response from Planner (could be next question or "GENERATE_PLAN" signal)
             response = await self.planner.ask_question(user_input)
 
-            # Record Planner response
-            self.state.planner_conversation_history.append({
-                "role": "assistant",
-                "content": str(response),
-                "timestamp": datetime.now().isoformat()
-            })
+            # Convert response to string for checking
+            response_str = str(response).strip()
 
-            # Detect response type
-            response_type = self.planner._detect_response_type(str(response))
+            # Check if Planner is signaling to generate plan
+            if response_str == "GENERATE_PLAN":
+                logger.info("Planner signaled GENERATE_PLAN - calling generate_business_logic()")
 
-            # Check if this is a Business Logic Plan
-            if response_type == PlannerResponseType.BUSINESS_LOGIC_PLAN:
-                logger.info("Business Logic Plan generated!")
-                self.state.business_logic_plan = str(response)
+                # Call the specialized method to generate the actual plan
+                plan_response = await self.planner.generate_business_logic(force=False)
+
+                # Record the plan generation in history
+                self.state.planner_conversation_history.append({
+                    "role": "assistant",
+                    "content": str(plan_response),
+                    "timestamp": datetime.now().isoformat(),
+                    "is_business_logic_plan": True
+                })
+
+                # Store the business logic plan
+                self.state.business_logic_plan = str(plan_response)
+                self.state.current_question = None  # No more questions
                 self._change_phase(WorkflowPhase.PLAN_REVIEW)
+
+                response_type = PlannerResponseType.BUSINESS_LOGIC_PLAN
+                response = plan_response  # Replace signal with actual plan
+            else:
+                # Record normal Planner response
+                self.state.planner_conversation_history.append({
+                    "role": "assistant",
+                    "content": response_str,
+                    "timestamp": datetime.now().isoformat()
+                })
+
+                # Detect response type
+                response_type = self.planner._detect_response_type(response_str)
+
+                # Store the next question
+                self.state.current_question = response_str
 
             # Trigger callbacks
             if self.on_planner_response:
@@ -618,17 +650,72 @@ class IRAOrchestrator:
 
             # Request code refinement from Coder Agent
             refinement_prompt = f"""
-The user reviewed the output and provided the following feedback:
+**CODE REFINEMENT REQUEST - Refinement Iteration {self.state.output_refinement_iterations}/{max_refinement_iterations}**
 
-{feedback}
+You are being asked to refine previously generated code based on new user feedback.
 
-Please modify the code to address this feedback. Generate COMPLETE corrected code that:
-1. Addresses the user's feedback
-2. Maintains all existing functionality that was working
-3. Follows the same structure and IRA preprocessing
-4. Saves output to the same path
+================================================================================
+ORIGINAL BUSINESS LOGIC PLAN (in your context above)
+================================================================================
+The Business Logic Plan you originally implemented is injected in your context above.
+Review it to understand what the workflow was supposed to accomplish.
 
-Provide the COMPLETE updated code.
+Original workflow purpose: {self.workflow_description}
+
+================================================================================
+PREVIOUS CODE (what you generated)
+================================================================================
+The code below was generated and executed successfully, producing output that the user reviewed:
+
+```python
+{self.state.generated_code[:2000] if self.state.generated_code else "No previous code"}
+...
+```
+(Full code is in conversation history)
+
+================================================================================
+NEW USER REQUEST (refinement feedback)
+================================================================================
+After reviewing the output, the user wants this change:
+
+"{feedback}"
+
+================================================================================
+YOUR TASK
+================================================================================
+Generate UPDATED code that:
+
+1. **Implements the new user request** (the refinement feedback above)
+   - This is the PRIMARY goal - address what the user is asking for
+
+2. **Maintains original business logic UNLESS it conflicts with the new request**
+   - If the new request contradicts the original Business Logic Plan, the NEW REQUEST TAKES PRIORITY
+   - Example: If original plan said "exclude reversals" but new request says "include reversals", then INCLUDE them
+   - If the new request adds something (e.g., "add summary row"), keep everything from original plan AND add the new feature
+
+3. **Preserves technical implementation details**
+   - Keep using the same CSV file paths and column names (unless new request changes them)
+   - Follow the same 3-part code structure with IRA preprocessing
+   - Save output to the same path: {self.state.output_file_path}
+
+4. **Uses correct column names from the data**
+   - Review CSV metadata in your context for actual column names
+   - If previous code had column name errors, fix them based on actual CSV structure
+
+================================================================================
+BEFORE GENERATING CODE - CHECKLIST
+================================================================================
+✓ Have you read the new user request carefully?
+✓ Does the new request modify/override any part of the original Business Logic Plan?
+✓ If yes, which parts should be updated vs. which should stay the same?
+✓ Are you using the correct column names from the CSV metadata?
+✓ Will your changes break any functionality the user expects to keep?
+
+================================================================================
+GENERATE COMPLETE UPDATED CODE
+================================================================================
+Provide the COMPLETE updated Python code below.
+Do NOT provide snippets - provide the full executable code with all three parts.
 """
 
             # Get refined code from Coder
@@ -853,6 +940,74 @@ Provide the COMPLETE updated code.
         logger.info(f"Saved generated code to: {filepath}")
         return filepath
 
+    def _is_user_ready_for_plan(self, user_input: str) -> bool:
+        """
+        Detect if user input indicates they're ready for plan generation.
+
+        This saves an LLM call by detecting readiness at the orchestrator level
+        instead of having the planner agent signal with "GENERATE_PLAN".
+
+        Args:
+            user_input: User's response text
+
+        Returns:
+            True if user is ready for plan generation, False otherwise
+        """
+        user_input_lower = user_input.lower().strip()
+
+        # Common phrases indicating readiness for plan generation
+        readiness_indicators = [
+            # Direct affirmatives to "is there anything else?"
+            "no, i think we've covered everything",
+            "no, we've covered everything",
+            "we've covered everything",
+            "covered everything",
+            "no, that's everything",
+            "that's everything",
+            "no, nothing else",
+            "nothing else",
+
+            # Explicit plan generation requests
+            "generate the plan",
+            "please generate the plan",
+            "generate plan",
+            "create the plan",
+            "please create the plan",
+            "proceed with the plan",
+            "proceed with plan",
+
+            # Simple affirmatives (if they seem confident)
+            "yes, proceed",
+            "yes proceed",
+            "proceed",
+            "continue",
+            "looks good",
+            "approved",
+            "perfect",
+
+            # Negative responses to "anything else?"
+            "no",
+            "nope",
+            "nah",
+        ]
+
+        # Check if user input contains any of these indicators
+        for indicator in readiness_indicators:
+            if indicator in user_input_lower:
+                return True
+
+        # Check for pattern: starts with "no" and mentions "plan"
+        if user_input_lower.startswith("no") and "plan" in user_input_lower:
+            return True
+
+        # Check for very short negative responses (likely answering "anything else?")
+        # But only if we've asked at least 5 questions (likely at final review stage)
+        if self.state.planner_questions_asked >= 5:
+            if user_input_lower in ["no", "nope", "nah", "no.", "nope.", "n"]:
+                return True
+
+        return False
+
     def _change_phase(self, new_phase: WorkflowPhase):
         """Change workflow phase and trigger callback."""
         old_phase = self.state.phase
@@ -930,6 +1085,7 @@ Provide the COMPLETE updated code.
             "phase": self.state.phase.value,
             "started_at": self.state.started_at.isoformat() if self.state.started_at else None,
             "completed_at": self.state.completed_at.isoformat() if self.state.completed_at else None,
+            "current_question": self.state.current_question,
             "is_successful": self.state.is_successful,
             "error_message": self.state.error_message,
             "planner_summary": self.get_planner_summary(),
@@ -947,7 +1103,7 @@ def create_orchestrator(
     workflow_description: str,
     csv_filepaths: List[str],
     output_filename: str = "result.csv",
-    model: str = "gpt-4o",
+    model: str = "gpt-5",
     **kwargs
 ) -> IRAOrchestrator:
     """
@@ -969,7 +1125,7 @@ def create_orchestrator(
         ...     workflow_name="Sales Analysis",
         ...     workflow_description="Analyze Q4 sales data",
         ...     csv_filepaths=["data/sales.csv"],
-        ...     model="gpt-4o"
+        ...     model="gpt-5"
         ... )
         >>> await orchestrator.start()
     """

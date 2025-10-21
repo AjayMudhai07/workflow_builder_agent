@@ -1,0 +1,21 @@
+{
+  "workflow_name": " Expenses document date for later period v/s posting date in previous period / qtr",
+  "workflow_description": "Flag line items where Document Date falls in a later accounting month-year than Posting Date, including across years, indicating potential timing irregularities.",
+  "csv_filepaths": [
+    "data/uploads/213ac2a7-4376-472f-97f4-acd7d1e0a2a8/FBL3N.csv"
+  ],
+  "phase": "failed",
+  "started_at": "2025-10-16T18:49:24.800306",
+  "completed_at": null,
+  "planner_questions_asked": 0,
+  "current_question": null,
+  "business_logic_plan": null,
+  "plan_approved": false,
+  "generated_code": null,
+  "code_execution_iterations": 0,
+  "output_file_path": null,
+  "output_approved": false,
+  "output_refinement_iterations": 0,
+  "error_message": "Failed to initialize workflow: <class 'agent_framework.openai._chat_client.OpenAIChatClient'> service failed to complete the prompt: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************kI4A. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_api_key'}}",
+  "is_successful": false
+}

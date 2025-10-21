@@ -489,7 +489,7 @@ class CoderAgent:
 
     def __init__(
         self,
-        model: str = "gpt-4o",
+        model: str = "gpt-5",
         temperature: float = 0.3,
         max_iterations: int = 5,
         execution_timeout: int = 120
@@ -498,7 +498,7 @@ class CoderAgent:
         Initialize Coder Agent.
 
         Args:
-            model: OpenAI model to use (default: gpt-4o)
+            model: OpenAI model to use (default: gpt-5)
             temperature: Temperature for code generation (default: 0.3 - more deterministic)
             max_iterations: Maximum code generation attempts (default: 5)
             execution_timeout: Timeout for code execution in seconds (default: 120)
@@ -890,7 +890,7 @@ Make sure the code saves the output CSV to the exact path specified.
 # =============================================================================
 
 def create_coder_agent(
-    model: str = "gpt-4o",
+    model: str = "gpt-5",
     temperature: float = 0.3,
     max_iterations: int = 5,
     execution_timeout: int = 120
@@ -899,7 +899,7 @@ def create_coder_agent(
     Create and configure a Coder Agent.
 
     Args:
-        model: OpenAI model to use (default: gpt-4o)
+        model: OpenAI model to use (default: gpt-5)
         temperature: Temperature for code generation (default: 0.3)
         max_iterations: Maximum code generation attempts (default: 5)
         execution_timeout: Code execution timeout in seconds (default: 120)
@@ -908,7 +908,7 @@ def create_coder_agent(
         Configured CoderAgent instance
 
     Example:
-        >>> coder = create_coder_agent(model="gpt-4o", max_iterations=3)
+        >>> coder = create_coder_agent(model="gpt-5", max_iterations=3)
         >>> await coder.initialize_workflow(
         ...     workflow_name="Sales Analysis",
         ...     business_logic_plan=plan_text,
