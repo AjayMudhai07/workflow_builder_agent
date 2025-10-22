@@ -18,6 +18,7 @@ export default function PlanReviewPage() {
 
   // State
   const [plan, setPlan] = useState<string>("");
+  const [currentPhase, setCurrentPhase] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
   const [isApproving, setIsApproving] = useState(false);
   const [isRequestingChanges, setIsRequestingChanges] = useState(false);
@@ -42,6 +43,19 @@ export default function PlanReviewPage() {
       }
 
       setPlan(response.business_logic_plan);
+      setCurrentPhase(response.phase);
+
+      // If workflow is already in output_review phase, redirect to output page
+      if (response.phase === "output_review" || response.phase === "completed") {
+        router.push(`/workflow/${workflowId}/output`);
+        return;
+      }
+
+      // If workflow is in coding phase, redirect to generation page
+      if (response.phase === "coding") {
+        router.push(`/workflow/${workflowId}/generation`);
+        return;
+      }
     } catch (err: any) {
       console.error("Error loading plan:", err);
 
@@ -72,8 +86,14 @@ export default function PlanReviewPage() {
         throw new Error(response.error || "Failed to approve plan");
       }
 
-      // Navigate to generation page
-      router.push(`/workflow/${workflowId}/generation`);
+      // Navigate based on the workflow phase
+      // If the code has already been generated (refinement flow), go to output
+      // Otherwise, go to the generation page
+      if (response.phase === "output_review") {
+        router.push(`/workflow/${workflowId}/output`);
+      } else {
+        router.push(`/workflow/${workflowId}/generation`);
+      }
     } catch (err: any) {
       console.error("Error approving plan:", err);
       setError(err.message || "Failed to approve plan. Please try again.");

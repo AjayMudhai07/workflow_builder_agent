@@ -5,7 +5,7 @@ setup(
     name="ira-workflow-builder",
     use_scm_version=True,
     setup_requires=["setuptools_scm"],
-    packages=find_packages(where="src"),
-    package_dir={"": "src"},
+    packages=find_packages(where="."),
+    package_dir={"": "."},
     include_package_data=True,
 )

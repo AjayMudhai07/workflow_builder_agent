@@ -19,15 +19,14 @@ if [ ! -f .env ]; then
     read -p "Press Enter to continue after setting your API key..."
 fi
 
-# Check if OPENAI_API_KEY is set
-source .env
-if [ -z "$OPENAI_API_KEY" ] || [ "$OPENAI_API_KEY" = "your_openai_api_key_here" ]; then
+# Check if OPENAI_API_KEY is set in .env file
+if grep -q "OPENAI_API_KEY=sk-" .env 2>/dev/null; then
+    echo "✅ Environment configuration loaded"
+else
     echo "❌ Error: OPENAI_API_KEY not set in .env file"
     echo "Please edit .env and add your OpenAI API key"
     exit 1
 fi
-
-echo "✅ Environment configuration loaded"
 echo ""
 
 # Check if virtual environment exists
@@ -72,4 +71,4 @@ echo "Press Ctrl+C to stop the server"
 echo ""
 
 # Run with uvicorn
-python -m uvicorn ira_builder.api.app:app --reload --host 0.0.0.0 --port 8000
+python -m uvicorn backend.api.app:app --reload --host 0.0.0.0 --port 8000

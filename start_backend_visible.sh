@@ -20,4 +20,4 @@ echo "Backend will start on http://localhost:8000"
 echo "Press Ctrl+C to stop"
 echo ""
 
-python -m uvicorn ira_builder.api.app:app --reload --host 0.0.0.0 --port 8000
+python -m uvicorn backend.api.app:app --reload --host 0.0.0.0 --port 8000
