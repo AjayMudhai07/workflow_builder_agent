@@ -35,7 +35,25 @@ async def lifespan(app: FastAPI):
     logger.info("IRA WORKFLOW BUILDER API STARTING")
     logger.info("=" * 80)
     logger.info(f"Environment: {config.environment}")
-    logger.info(f"OpenAI Model: {config.openai_model}")
+
+    # Show LLM provider information (phase-specific)
+    logger.info("LLM Configuration:")
+    logger.info(f"  📋 Planning Phase: {config.planner_provider.upper()}")
+    if config.planner_provider == 'openai':
+        logger.info(f"     Model: {config.openai_model}")
+    else:
+        logger.info(f"     Model: {config.groq_model}")
+
+    logger.info(f"  💻 Coding Phase: {config.coder_provider.upper()}")
+    if config.coder_provider == 'openai':
+        logger.info(f"     Model: {config.openai_model}")
+    else:
+        logger.info(f"     Model: {config.groq_model}")
+
+    # Show hybrid mode status
+    if config.planner_provider != config.coder_provider:
+        logger.info("  🔄 Hybrid Mode: ENABLED")
+
     logger.info(f"CORS Origins: {config.cors_origins}")
 
     # Create necessary directories

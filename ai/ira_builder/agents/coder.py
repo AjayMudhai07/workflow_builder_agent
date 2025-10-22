@@ -489,47 +489,74 @@ class CoderAgent:
 
     def __init__(
         self,
-        model: str = "gpt-5",
+        model: Optional[str] = None,
         temperature: float = 0.3,
         max_iterations: int = 5,
-        execution_timeout: int = 120
+        execution_timeout: int = 120,
+        provider: Optional[str] = None
     ):
         """
         Initialize Coder Agent.
 
         Args:
-            model: OpenAI model to use (default: gpt-5)
+            model: Model to use (or None for provider default)
             temperature: Temperature for code generation (default: 0.3 - more deterministic)
             max_iterations: Maximum code generation attempts (default: 5)
             execution_timeout: Timeout for code execution in seconds (default: 120)
+            provider: LLM provider ("openai", "groq", or None for config default)
         """
+        from ai.ira_builder.utils.llm_provider import create_chat_client
+
+        config = get_config()
+
+        # Determine provider
+        provider = provider or config.llm_provider
+
+        # Create chat client using factory
+        chat_client = create_chat_client(
+            provider=provider,
+            model=model,
+            use_azure=False
+        )
+
+        # Determine actual model name
+        if model is None:
+            if provider == "groq":
+                model = config.groq_model
+            else:
+                model = config.openai_model
+
         self.model = model
+        self.provider = provider
         self.temperature = temperature
         self.max_iterations = max_iterations
         self.execution_timeout = execution_timeout
 
-        # Create chat client
-        config = get_config()
-        chat_client = OpenAIChatClient(
-            model_id=model,
-            # temperature handled in ChatAgent
-        )
-
         # Create memory provider
         self.memory = CoderMemory()
         self.memory.max_iterations = max_iterations
+
+        # Check if using Groq provider (Groq has issues with function calling)
+        is_groq = provider == "groq"
+
+        # For Groq, disable tools due to function calling compatibility issues
+        if is_groq:
+            logger.info("Using Groq provider - disabling tools for Coder agent")
+            agent_tools = []
+        else:
+            agent_tools = [
+                # Code validation and execution tools
+                validate_python_syntax,
+                # Note: We don't give the agent direct access to execute_python_code
+                # We control execution in the workflow
+            ]
 
         # Create agent
         self.agent = ChatAgent(
             name="IRA-Coder",
             chat_client=chat_client,
             instructions=CODER_INSTRUCTIONS,
-            tools=[
-                # Code validation and execution tools
-                validate_python_syntax,
-                # Note: We don't give the agent direct access to execute_python_code
-                # We control execution in the workflow
-            ],
+            tools=agent_tools,
             context_providers=[self.memory]
         )
 
@@ -540,7 +567,7 @@ class CoderAgent:
         self.workflow_name: Optional[str] = None
         self.work_dir: Optional[Path] = None
 
-        logger.info(f"Coder Agent initialized with model: {model}")
+        logger.info(f"Coder Agent initialized with provider: {provider}, model: {model}")
 
     async def initialize_workflow(
         self,
@@ -650,34 +677,101 @@ class CoderAgent:
             if exec_result['status'] == 'success':
                 logger.info("✓ Code executed successfully!")
 
-                # Validate output file
-                output_validation = validate_output_dataframe(self.memory.output_path)
+                # Check if output is a CSV file (skip validation for .txt files like analysis reports)
+                is_csv_output = self.memory.output_path.endswith('.csv')
 
-                if output_validation['valid']:
-                    logger.info(f"✓ Output file validated: {output_validation['row_count']} rows")
+                if is_csv_output:
+                    # Validate output CSV file
+                    output_validation = validate_output_dataframe(self.memory.output_path)
 
-                    # Get preview and summary
-                    preview = preview_dataframe(self.memory.output_path, rows=10)
-                    summary = get_dataframe_summary(self.memory.output_path)
+                    if output_validation['valid']:
+                        logger.info(f"✓ Output file validated: {output_validation['row_count']} rows")
+
+                        # Get preview and summary
+                        preview = preview_dataframe(self.memory.output_path, rows=10)
+                        summary = get_dataframe_summary(self.memory.output_path)
+
+                        # Replace csv_files and output_path with absolute paths in final code
+                        final_code = self._replace_paths_in_code(generated_code)
+
+                        return {
+                            "status": "success",
+                            "code": final_code,  # Return code with absolute paths
+                            "execution_result": exec_result,
+                            "output_path": self.memory.output_path,
+                            "output_validation": output_validation,
+                            "output_preview": preview,
+                            "output_summary": summary,
+                            "iterations": iteration
+                        }
+                    else:
+                        logger.warning(f"Output validation failed: {output_validation['error']}")
+                        # Request fix for output issues
+                        await self._request_output_fix(output_validation, generated_code)
+                        continue
+                else:
+                    # For non-CSV outputs (e.g., .txt analysis reports), validate it's not CSV data
+                    logger.info(f"✓ Non-CSV output file created: {self.memory.output_path}")
+
+                    # Validate .txt files don't contain CSV data
+                    if self.memory.output_path.endswith('.txt'):
+                        try:
+                            with open(self.memory.output_path, 'r', encoding='utf-8') as f:
+                                content = f.read(500)  # Read first 500 chars
+
+                            # Check if it looks like CSV data (comma-separated values with consistent structure)
+                            lines = content.strip().split('\n')
+                            if len(lines) >= 2:
+                                # Check if first two lines have same number of commas (CSV pattern)
+                                first_commas = lines[0].count(',')
+                                second_commas = lines[1].count(',') if len(lines) > 1 else 0
+
+                                if first_commas > 0 and first_commas == second_commas:
+                                    # This looks like CSV data in a .txt file!
+                                    logger.warning("⚠️ Detected CSV data in .txt file - requesting fix")
+                                    error_msg = f"""
+OUTPUT FILE VALIDATION ERROR:
+
+The generated code wrote CSV data to a .txt file instead of a human-readable text report!
+
+Content detected:
+{content[:200]}
+
+This is WRONG! The output file is supposed to be an ANALYSIS REPORT in text format, NOT raw CSV data.
+
+REQUIRED OUTPUT FORMAT:
+- Human-readable text with headers and sections
+- Use "=" * 80 for dividers
+- Use bullet points (•) for lists
+- Include descriptive labels and explanations
+- Format: "Total Exceptions: 33,544" NOT "Company Code,Exception_Count,..."
+
+DO NOT use df.to_csv() or write raw DataFrame data!
+You MUST build a text report using report_lines.append() and write it with open().write()
+
+Review the code template in the instructions and generate proper analysis report code."""
+
+                                    await self._request_output_fix({
+                                        "valid": False,
+                                        "error": "CSV data written to .txt file instead of text report"
+                                    }, generated_code, error_msg)
+                                    continue
+                        except Exception as e:
+                            logger.warning(f"Could not validate .txt content: {e}")
 
                     # Replace csv_files and output_path with absolute paths in final code
                     final_code = self._replace_paths_in_code(generated_code)
 
                     return {
                         "status": "success",
-                        "code": final_code,  # Return code with absolute paths
+                        "code": final_code,
                         "execution_result": exec_result,
                         "output_path": self.memory.output_path,
-                        "output_validation": output_validation,
-                        "output_preview": preview,
-                        "output_summary": summary,
+                        "output_validation": {"valid": True, "message": "Non-CSV output - validation skipped"},
+                        "output_preview": None,
+                        "output_summary": None,
                         "iterations": iteration
                     }
-                else:
-                    logger.warning(f"Output validation failed: {output_validation['error']}")
-                    # Request fix for output issues
-                    await self._request_output_fix(output_validation, generated_code)
-                    continue
 
             else:
                 # Execution failed - analyze error and request fix
@@ -890,25 +984,39 @@ Make sure the code saves the output CSV to the exact path specified.
 # =============================================================================
 
 def create_coder_agent(
-    model: str = "gpt-5",
+    model: Optional[str] = None,
     temperature: float = 0.3,
     max_iterations: int = 5,
-    execution_timeout: int = 120
+    execution_timeout: int = 120,
+    provider: Optional[str] = None
 ) -> CoderAgent:
     """
     Create and configure a Coder Agent.
 
     Args:
-        model: OpenAI model to use (default: gpt-5)
+        model: Model to use (or None for provider default)
         temperature: Temperature for code generation (default: 0.3)
         max_iterations: Maximum code generation attempts (default: 5)
         execution_timeout: Code execution timeout in seconds (default: 120)
+        provider: LLM provider ("openai", "groq", or None for config default)
 
     Returns:
         Configured CoderAgent instance
 
     Example:
-        >>> coder = create_coder_agent(model="gpt-5", max_iterations=3)
+        >>> # Use OpenAI (default)
+        >>> coder = create_coder_agent(model="gpt-4o", max_iterations=3)
+
+        >>> # Use Groq
+        >>> coder = create_coder_agent(
+        ...     provider="groq",
+        ...     model="llama-3.3-70b-versatile",
+        ...     max_iterations=3
+        ... )
+
+        >>> # Use config defaults
+        >>> coder = create_coder_agent()
+
         >>> await coder.initialize_workflow(
         ...     workflow_name="Sales Analysis",
         ...     business_logic_plan=plan_text,
@@ -920,5 +1028,6 @@ def create_coder_agent(
         model=model,
         temperature=temperature,
         max_iterations=max_iterations,
-        execution_timeout=execution_timeout
+        execution_timeout=execution_timeout,
+        provider=provider
     )

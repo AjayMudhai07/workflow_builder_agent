@@ -10,11 +10,15 @@ export type WorkflowPhase =
   | "plan_review"
   | "generation"
   | "results"
+  | "analysis"
+  | "live"
   // Backend phase aliases
   | "not_started"
   | "planning"
   | "coding"
   | "output_review"
+  | "analysis_report_generation"
+  | "analysis_report_review"
   | "completed"
   | "failed";
 
@@ -30,6 +34,8 @@ const PHASES: PhaseStep[] = [
   { id: "plan_review", label: "Review Plan", number: 3 },
   { id: "generation", label: "Generation", number: 4 },
   { id: "results", label: "Results", number: 5 },
+  { id: "analysis", label: "Analysis", number: 6 },
+  { id: "live", label: "Live", number: 7 },
 ];
 
 interface PhaseIndicatorProps {
@@ -48,7 +54,10 @@ export function PhaseIndicator({
     plan_review: "plan_review",
     coding: "generation",
     output_review: "results",
-    completed: "results",
+    analysis_report_generation: "analysis",
+    analysis_report_review: "analysis",
+    live: "live",
+    completed: "live",
     failed: "results",
   };
 

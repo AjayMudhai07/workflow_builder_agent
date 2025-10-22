@@ -196,3 +196,66 @@ class WorkflowFilterRequest(BaseModel):
         description="Number of workflows to skip (pagination)",
         examples=[0, 10, 20]
     )
+
+
+class AnalysisInstructionsApprovalRequest(BaseModel):
+    """Request model for approving analysis instructions (optionally edited)."""
+
+    instructions: Optional[str] = Field(
+        default=None,
+        description="User-edited instructions (if None, uses generated ones)",
+        examples=["Include detailed breakdown by company code and plant..."]
+    )
+
+    @field_validator('instructions')
+    @classmethod
+    def validate_instructions(cls, v: Optional[str]) -> Optional[str]:
+        """Validate instructions if provided."""
+        if v is not None and not v.strip():
+            raise ValueError("Instructions cannot be empty if provided")
+        return v.strip() if v else None
+
+
+class MakeWorkflowLiveRequest(BaseModel):
+    """Request model for making a workflow live in production/staging."""
+
+    business_process_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description="ID of the business process this workflow belongs to",
+        examples=["BP_001", "finance-audit-2024", "vendor-validation"]
+    )
+    mode: str = Field(
+        ...,
+        pattern="^(Staging|Production)$",
+        description="Deployment environment: 'Staging' or 'Production'",
+        examples=["Staging", "Production"]
+    )
+    check_id: Optional[str] = Field(
+        default=None,
+        max_length=100,
+        description="Optional custom check ID (if None, will be auto-generated)",
+        examples=["MS_001", "FIN_AUDIT_001", "VEN_VAL_001"]
+    )
+    tags: Optional[List[str]] = Field(
+        default=None,
+        description="Optional tags for categorizing the workflow",
+        examples=[["VEN"], ["FIN", "AUDIT"], ["VENDOR", "VALIDATION"]]
+    )
+
+    @field_validator('business_process_id')
+    @classmethod
+    def validate_business_process_id(cls, v: str) -> str:
+        """Validate business process ID is not empty."""
+        if not v.strip():
+            raise ValueError("Business process ID cannot be empty")
+        return v.strip()
+
+    @field_validator('check_id')
+    @classmethod
+    def validate_check_id(cls, v: Optional[str]) -> Optional[str]:
+        """Validate check ID if provided."""
+        if v is not None and not v.strip():
+            raise ValueError("Check ID cannot be empty if provided")
+        return v.strip() if v else None

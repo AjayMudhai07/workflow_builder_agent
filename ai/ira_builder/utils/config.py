@@ -46,10 +46,22 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: list = Field(default=["http://localhost:3000", "http://localhost:8000"], alias="CORS_ORIGINS")
 
+    # LLM Provider Selection
+    llm_provider: str = Field(default="openai", alias="LLM_PROVIDER")  # "openai" or "groq" (fallback)
+
+    # Phase-specific LLM Providers (allows different models for different phases)
+    planner_provider: str = Field(default="openai", alias="PLANNER_PROVIDER")  # Provider for planning phase
+    coder_provider: str = Field(default="groq", alias="CODER_PROVIDER")  # Provider for coding phase
+
     # OpenAI
     openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
     openai_chat_model_id: str = Field(default="gpt-5", alias="OPENAI_CHAT_MODEL_ID")
     openai_model: str = Field(default="gpt-5", alias="OPENAI_MODEL")
+
+    # Groq
+    groq_api_key: Optional[str] = Field(default=None, alias="GROQ_API_KEY")
+    groq_model: str = Field(default="llama-3.3-70b-versatile", alias="GROQ_MODEL")
+    groq_base_url: str = Field(default="https://api.groq.com/openai/v1", alias="GROQ_BASE_URL")
 
     # Azure OpenAI
     azure_openai_api_key: Optional[str] = Field(default=None, alias="AZURE_OPENAI_API_KEY")

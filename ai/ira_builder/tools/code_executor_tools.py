@@ -280,16 +280,17 @@ def validate_python_syntax(code: str) -> Dict[str, Any]:
 
 def preview_dataframe(filepath: str, rows: int = 20) -> str:
     """
-    Generate markdown preview of CSV file.
+    Generate markdown preview of CSV file or text file.
 
     This is used to show the user what the code produced.
 
     Args:
-        filepath: Path to CSV file to preview
+        filepath: Path to CSV or text file to preview
         rows: Number of rows to include in preview (default: 20)
 
     Returns:
-        Markdown formatted table string with row count header
+        Markdown formatted table string with row count header (for CSV)
+        or text preview (for .txt files)
 
     Example:
         >>> preview = preview_dataframe("output.csv", rows=5)
@@ -303,6 +304,33 @@ def preview_dataframe(filepath: str, rows: int = 20) -> str:
     """
     logger.debug(f"Generating preview for {filepath}")
 
+    # Handle .txt files differently (e.g., analysis reports)
+    if Path(filepath).suffix.lower() == '.txt':
+        try:
+            with open(filepath, 'r') as f:
+                content = f.read()
+
+            # Show first 2000 characters of text file
+            max_chars = 2000
+            if len(content) > max_chars:
+                preview_content = content[:max_chars] + "\n\n... (truncated)"
+            else:
+                preview_content = content
+
+            header = f"**Text File Preview ({len(content)} characters):**\n\n"
+            logger.debug(f"Text preview generated: {len(content)} characters")
+            return header + "```\n" + preview_content + "\n```"
+
+        except FileNotFoundError:
+            error_msg = f"❌ Error: File not found: {filepath}"
+            logger.error(error_msg)
+            return error_msg
+        except Exception as e:
+            error_msg = f"❌ Error reading file: {str(e)}"
+            logger.error(error_msg)
+            return error_msg
+
+    # Handle CSV files
     try:
         df = pd.read_csv(filepath)
         total_rows = len(df)
@@ -367,6 +395,29 @@ def validate_output_dataframe(filepath: str) -> Dict[str, Any]:
             "column_count": 0,
             "columns": [],
             "file_size_mb": 0.0
+        }
+
+    # For .txt files (analysis reports), just validate existence and size
+    if path.suffix.lower() == '.txt':
+        file_size = path.stat().st_size
+        if file_size == 0:
+            logger.warning(f"Output text file is empty: {filepath}")
+            return {
+                "valid": False,
+                "error": "Output file is empty (0 bytes)",
+                "row_count": 0,
+                "column_count": 0,
+                "columns": [],
+                "file_size_mb": 0.0
+            }
+        logger.info(f"Text output validated: {round(file_size / (1024 * 1024), 2)} MB")
+        return {
+            "valid": True,
+            "error": None,
+            "row_count": 0,  # Not applicable for text files
+            "column_count": 0,  # Not applicable for text files
+            "columns": [],  # Not applicable for text files
+            "file_size_mb": round(file_size / (1024 * 1024), 2)
         }
 
     # Try to read and validate the CSV
@@ -543,21 +594,52 @@ def _get_error_suggestion(error_type: str, error_message: str, code: str) -> str
 # Helper function to get dataframe summary statistics
 def get_dataframe_summary(filepath: str) -> Dict[str, Any]:
     """
-    Get summary statistics for a dataframe.
+    Get summary statistics for a dataframe or text file.
 
     Args:
-        filepath: Path to CSV file
+        filepath: Path to CSV or text file
 
     Returns:
         Dictionary with summary statistics
     """
     logger.debug(f"Generating summary for {filepath}")
 
+    # Handle .txt files differently (e.g., analysis reports)
+    if Path(filepath).suffix.lower() == '.txt':
+        try:
+            with open(filepath, 'r') as f:
+                content = f.read()
+
+            # Basic text file info
+            lines = content.split('\n')
+            words = content.split()
+
+            summary = {
+                "file_type": "text",
+                "character_count": len(content),
+                "line_count": len(lines),
+                "word_count": len(words),
+                "file_size_mb": round(Path(filepath).stat().st_size / (1024 * 1024), 2)
+            }
+
+            logger.debug(f"Text summary generated: {len(lines)} lines, {len(words)} words")
+            return summary
+
+        except Exception as e:
+            logger.error(f"Error generating text summary: {str(e)}")
+            return {
+                "error": str(e),
+                "file_type": "text",
+                "character_count": 0
+            }
+
+    # Handle CSV files
     try:
         df = pd.read_csv(filepath)
 
         # Basic info
         summary = {
+            "file_type": "csv",
             "row_count": len(df),
             "column_count": len(df.columns),
             "columns": df.columns.tolist(),
@@ -582,6 +664,7 @@ def get_dataframe_summary(filepath: str) -> Dict[str, Any]:
         logger.error(f"Error generating summary: {str(e)}")
         return {
             "error": str(e),
+            "file_type": "csv",
             "row_count": 0,
             "column_count": 0
         }

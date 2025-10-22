@@ -17,6 +17,9 @@ class WorkflowPhaseEnum(str, Enum):
     PLAN_REVIEW = "plan_review"
     CODING = "coding"
     OUTPUT_REVIEW = "output_review"
+    ANALYSIS_REPORT_GENERATION = "analysis_report_generation"
+    ANALYSIS_REPORT_REVIEW = "analysis_report_review"
+    LIVE = "live"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -243,6 +246,64 @@ class WorkflowCompletionResponse(BaseModel):
     )
 
 
+class AnalysisInstructionsResponse(BaseModel):
+    """Response model for analysis instructions generation."""
+
+    status: str = Field(
+        ...,
+        description="Status of the operation",
+        examples=["success"]
+    )
+    phase: WorkflowPhaseEnum = Field(
+        ...,
+        description="Current workflow phase",
+        examples=["analysis_report_generation"]
+    )
+    instructions: str = Field(
+        ...,
+        description="Generated analysis report instructions (user can edit)"
+    )
+
+
+class AnalysisReportResponse(BaseModel):
+    """Response model for analysis report generation/refinement."""
+
+    status: str = Field(
+        ...,
+        description="Status of the operation",
+        examples=["success"]
+    )
+    phase: WorkflowPhaseEnum = Field(
+        ...,
+        description="Current workflow phase",
+        examples=["analysis_report_review"]
+    )
+    analysis_plan: Optional[str] = Field(
+        None,
+        description="Generated analysis plan"
+    )
+    code: Optional[str] = Field(
+        None,
+        description="Generated Python code for analysis report"
+    )
+    report_file_path: Optional[str] = Field(
+        None,
+        description="Path to the generated .txt report file"
+    )
+    report_content: str = Field(
+        ...,
+        description="Content of the analysis report (.txt file)"
+    )
+    iterations: Optional[int] = Field(
+        None,
+        description="Number of code generation iterations"
+    )
+    refinement_iteration: Optional[int] = Field(
+        None,
+        description="Current refinement iteration number"
+    )
+
+
 class WorkflowListItem(BaseModel):
     """Model for workflow list item."""
 
@@ -332,8 +393,60 @@ class WorkflowDetailResponse(BaseModel):
     output_file_path: Optional[str] = Field(None, description="Path to output file")
     output_approved: bool = Field(..., description="Whether output is approved")
     output_refinement_iterations: int = Field(..., description="Output refinement iterations")
+    analysis_instructions: Optional[str] = Field(None, description="Analysis report instructions")
+    analysis_instructions_approved: bool = Field(default=False, description="Whether analysis instructions are approved")
+    analysis_plan: Optional[str] = Field(None, description="Analysis plan")
+    analysis_code: Optional[str] = Field(None, description="Analysis code")
+    analysis_report_file_path: Optional[str] = Field(None, description="Path to analysis report file")
+    analysis_report_content: Optional[str] = Field(None, description="Analysis report content")
+    analysis_report_approved: bool = Field(default=False, description="Whether analysis report is approved")
+    analysis_refinement_iterations: int = Field(default=0, description="Analysis refinement iterations")
     error_message: Optional[str] = Field(None, description="Error message if failed")
     is_successful: bool = Field(..., description="Whether workflow is successful")
+
+
+class MakeWorkflowLiveResponse(BaseModel):
+    """Response model for making workflow live."""
+
+    status: str = Field(
+        ...,
+        description="Status of the operation",
+        examples=["success", "error"]
+    )
+    phase: WorkflowPhaseEnum = Field(
+        ...,
+        description="Current workflow phase (should be 'live')",
+        examples=["live"]
+    )
+    message: str = Field(
+        ...,
+        description="Message about the deployment",
+        examples=["Workflow successfully deployed to Staging"]
+    )
+    deployment_status: int = Field(
+        ...,
+        description="HTTP status code from deployment API",
+        examples=[200, 201]
+    )
+    check_id: str = Field(
+        ...,
+        description="Unique check ID for the deployed workflow",
+        examples=["MS_001", "FIN_AUDIT_001"]
+    )
+    business_process_id: str = Field(
+        ...,
+        description="Business process ID this workflow belongs to",
+        examples=["BP_001", "finance-audit-2024"]
+    )
+    mode: str = Field(
+        ...,
+        description="Deployment environment",
+        examples=["Staging", "Production"]
+    )
+    workflow_config: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Generated workflow configuration"
+    )
 
 
 class ErrorResponse(BaseModel):

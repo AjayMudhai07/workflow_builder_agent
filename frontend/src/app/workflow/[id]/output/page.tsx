@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, Check, Download, Edit, Loader2, AlertCircle, FileText, BarChart3 } from "lucide-react";
+import { ArrowLeft, Check, Download, Edit, Loader2, AlertCircle, FileText, BarChart3, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -54,6 +54,8 @@ export default function OutputReviewPage() {
           router.push(`/workflow/${workflowId}/generation`);
         } else if (workflowData.phase === "plan_review") {
           router.push(`/workflow/${workflowId}/plan`);
+        } else if (workflowData.phase === "analysis_report_generation" || workflowData.phase === "analysis_report_review") {
+          router.push(`/workflow/${workflowId}/analysis`);
         }
         return;
       }
@@ -76,18 +78,23 @@ export default function OutputReviewPage() {
     }
   };
 
-  const handleApprove = async () => {
+  const handleContinue = async () => {
     try {
       setIsApproving(true);
       setError(null);
 
-      await approveOutput(workflowId);
+      // Approve output and proceed to analysis
+      const result = await approveOutput(workflowId);
 
-      // Navigate to completion/success page
-      router.push(`/dashboard`);
+      // Wait for backend to restart and state to be fully persisted
+      // (Backend auto-reloads when new files are created)
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Navigate to analysis page
+      router.push(`/workflow/${workflowId}/analysis`);
     } catch (err: any) {
-      console.error("Error approving output:", err);
-      setError(err.message || "Failed to approve output");
+      console.error("Error continuing to analysis:", err);
+      setError(err.message || "Failed to continue to analysis");
       setIsApproving(false);
     }
   };
@@ -152,7 +159,7 @@ export default function OutputReviewPage() {
                 Back to Dashboard
               </Button>
             </div>
-            <div className="text-sm text-muted-foreground">Step 5 of 5</div>
+            <div className="text-sm text-muted-foreground">Step 5 of 6</div>
           </div>
         </div>
       </header>
@@ -370,19 +377,19 @@ export default function OutputReviewPage() {
 
                   <Button
                     size="lg"
-                    onClick={handleApprove}
+                    onClick={handleContinue}
                     disabled={isApproving}
-                    className="flex-1 bg-green-600 hover:bg-green-700"
+                    className="flex-1 bg-primary hover:bg-primary/90"
                   >
                     {isApproving ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Approving...
+                        Processing...
                       </>
                     ) : (
                       <>
-                        <Check className="w-4 h-4 mr-2" />
-                        Approve & Complete
+                        Continue to Analysis
+                        <ArrowRight className="w-4 h-4 ml-2" />
                       </>
                     )}
                   </Button>
@@ -396,7 +403,7 @@ export default function OutputReviewPage() {
                     <p className="font-medium text-foreground">What happens next?</p>
                     <ul className="space-y-1 list-disc list-inside">
                       <li>
-                        <strong>Approve & Complete:</strong> Mark the workflow as complete and return to dashboard
+                        <strong>Continue to Analysis:</strong> Generate a comprehensive analysis report summarizing findings and patterns
                       </li>
                       <li>
                         <strong>Request Changes:</strong> The AI will regenerate the output based on your feedback

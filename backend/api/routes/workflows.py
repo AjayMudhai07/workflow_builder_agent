@@ -15,6 +15,8 @@ from backend.api.models.requests import (
     OutputFeedbackRequest,
     FeedbackOnlyRequest,
     WorkflowFilterRequest,
+    AnalysisInstructionsApprovalRequest,
+    MakeWorkflowLiveRequest,
 )
 from backend.api.models.responses import (
     WorkflowCreateResponse,
@@ -23,12 +25,15 @@ from backend.api.models.responses import (
     CodeGenerationResponse,
     OutputRefinementResponse,
     WorkflowCompletionResponse,
+    AnalysisInstructionsResponse,
+    AnalysisReportResponse,
     WorkflowListResponse,
     WorkflowDetailResponse,
     ErrorResponse,
     WorkflowPhaseEnum,
     ResponseTypeEnum,
     WorkflowListItem,
+    MakeWorkflowLiveResponse,
 )
 from backend.api.services.workflow_manager import get_workflow_manager
 from ai.ira_builder.utils.logger import get_logger
@@ -384,14 +389,14 @@ async def approve_plan(workflow_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to approve plan: {str(e)}")
 
 
-@router.post("/workflows/{workflow_id}/output-feedback", response_model=OutputRefinementResponse | WorkflowCompletionResponse)
+@router.post("/workflows/{workflow_id}/output-feedback", response_model=OutputRefinementResponse | AnalysisInstructionsResponse)
 async def submit_output_feedback(workflow_id: str, request: OutputFeedbackRequest):
     """
     Submit feedback on the generated output.
 
     Actions:
     - 'refine': Request changes to the output (updates plan, transitions to PLAN_REVIEW)
-    - 'approve': Approve the output and complete the workflow
+    - 'approve': Approve the output and proceed to analysis report generation
     """
     try:
         manager = get_workflow_manager()
@@ -422,18 +427,16 @@ async def submit_output_feedback(workflow_id: str, request: OutputFeedbackReques
             )
 
         elif request.action == "approve":
-            # Approve output and complete workflow
-            result = await orchestrator.approve_output_and_complete()
+            # Approve output and generate analysis instructions
+            result = await orchestrator.approve_output_and_continue()
 
             if result["status"] == "error":
-                raise HTTPException(status_code=500, detail=result.get("error", "Failed to complete workflow"))
+                raise HTTPException(status_code=500, detail=result.get("error", "Failed to generate analysis instructions"))
 
-            return WorkflowCompletionResponse(
+            return AnalysisInstructionsResponse(
                 status="success",
-                phase=WorkflowPhaseEnum.COMPLETED,
-                output_path=result["output_path"],
-                execution_time=result["execution_time"],
-                is_successful=result["is_successful"]
+                phase=WorkflowPhaseEnum(result["phase"]),
+                instructions=result["instructions"]
             )
 
     except HTTPException:
@@ -489,12 +492,12 @@ async def refine_output(workflow_id: str, request: FeedbackOnlyRequest):
         raise HTTPException(status_code=500, detail=f"Failed to refine output: {str(e)}")
 
 
-@router.post("/workflows/{workflow_id}/approve-output", response_model=WorkflowCompletionResponse)
+@router.post("/workflows/{workflow_id}/approve-output", response_model=AnalysisInstructionsResponse)
 async def approve_output(workflow_id: str):
     """
-    Approve the generated output and complete the workflow.
+    Approve the generated output and proceed to analysis report generation.
 
-    This is a convenience endpoint that wraps output-feedback with action='approve'.
+    This automatically generates analysis instructions for the user to review/edit.
     """
     try:
         manager = get_workflow_manager()
@@ -509,8 +512,94 @@ async def approve_output(workflow_id: str):
                 detail=f"Invalid phase for output approval: {orchestrator.state.phase.value}"
             )
 
-        # Approve output and complete workflow
-        result = await orchestrator.approve_output_and_complete()
+        # Approve output and generate analysis instructions
+        result = await orchestrator.approve_output_and_continue()
+
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to generate analysis instructions"))
+
+        return AnalysisInstructionsResponse(
+            status="success",
+            phase=WorkflowPhaseEnum(result["phase"]),
+            instructions=result["instructions"]
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error approving output: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to approve output: {str(e)}")
+
+
+# =============================================================================
+# ANALYSIS REPORT GENERATION ENDPOINTS
+# =============================================================================
+
+@router.post("/workflows/{workflow_id}/approve-analysis-instructions", response_model=AnalysisReportResponse)
+async def approve_analysis_instructions(workflow_id: str, request: AnalysisInstructionsApprovalRequest):
+    """
+    Approve analysis instructions (optionally edited by user) and generate analysis report.
+
+    This generates the analysis plan, code, and .txt report file.
+    """
+    try:
+        manager = get_workflow_manager()
+        orchestrator = await manager.get_orchestrator(workflow_id)
+
+        if not orchestrator:
+            raise HTTPException(status_code=404, detail=f"Workflow not found: {workflow_id}")
+
+        if orchestrator.state.phase != WorkflowPhase.ANALYSIS_REPORT_GENERATION:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid phase for approving analysis instructions: {orchestrator.state.phase.value}"
+            )
+
+        # Approve instructions and generate report
+        result = await orchestrator.approve_analysis_instructions(
+            edited_instructions=request.instructions
+        )
+
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to generate analysis report"))
+
+        return AnalysisReportResponse(
+            status="success",
+            phase=WorkflowPhaseEnum(result["phase"]),
+            analysis_plan=result.get("analysis_plan"),
+            code=result.get("code"),
+            report_file_path=result.get("report_file_path"),
+            report_content=result["report_content"],
+            iterations=result.get("iterations")
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error approving analysis instructions: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to approve analysis instructions: {str(e)}")
+
+
+@router.post("/workflows/{workflow_id}/approve-analysis-report", response_model=WorkflowCompletionResponse)
+async def approve_analysis_report(workflow_id: str):
+    """
+    Approve the analysis report and complete the workflow.
+    """
+    try:
+        manager = get_workflow_manager()
+        orchestrator = await manager.get_orchestrator(workflow_id)
+
+        if not orchestrator:
+            raise HTTPException(status_code=404, detail=f"Workflow not found: {workflow_id}")
+
+        if orchestrator.state.phase != WorkflowPhase.ANALYSIS_REPORT_REVIEW:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid phase for approving analysis report: {orchestrator.state.phase.value}"
+            )
+
+        # Approve report and complete workflow
+        result = await orchestrator.approve_analysis_report()
 
         if result["status"] == "error":
             raise HTTPException(status_code=500, detail=result.get("error", "Failed to complete workflow"))
@@ -526,8 +615,114 @@ async def approve_output(workflow_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error approving output: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to approve output: {str(e)}")
+        logger.error(f"Error approving analysis report: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to approve analysis report: {str(e)}")
+
+
+@router.post("/workflows/{workflow_id}/refine-analysis-report", response_model=AnalysisReportResponse)
+async def refine_analysis_report(workflow_id: str, request: FeedbackOnlyRequest):
+    """
+    Refine the analysis report based on user feedback.
+
+    Regenerates the analysis code and creates a new report incorporating the feedback.
+    """
+    try:
+        manager = get_workflow_manager()
+        orchestrator = await manager.get_orchestrator(workflow_id)
+
+        if not orchestrator:
+            raise HTTPException(status_code=404, detail=f"Workflow not found: {workflow_id}")
+
+        if orchestrator.state.phase != WorkflowPhase.ANALYSIS_REPORT_REVIEW:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid phase for refining analysis report: {orchestrator.state.phase.value}"
+            )
+
+        # Refine the analysis report
+        result = await orchestrator.refine_analysis_report(request.feedback)
+
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to refine analysis report"))
+
+        return AnalysisReportResponse(
+            status="success",
+            phase=WorkflowPhaseEnum(result["phase"]),
+            code=result.get("code"),
+            report_file_path=result.get("report_file_path"),
+            report_content=result["report_content"],
+            refinement_iteration=result.get("refinement_iteration")
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error refining analysis report: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to refine analysis report: {str(e)}")
+
+
+@router.get("/workflows/{workflow_id}/analysis-report")
+async def get_analysis_report(workflow_id: str):
+    """
+    Get the current analysis report content.
+
+    Returns the .txt report file content if available.
+    """
+    try:
+        manager = get_workflow_manager()
+        orchestrator = await manager.get_orchestrator(workflow_id)
+
+        if not orchestrator:
+            raise HTTPException(status_code=404, detail=f"Workflow not found: {workflow_id}")
+
+        if not orchestrator.state.analysis_report_content:
+            raise HTTPException(status_code=404, detail="Analysis report not yet generated")
+
+        return {
+            "status": "success",
+            "report_content": orchestrator.state.analysis_report_content,
+            "report_file_path": orchestrator.state.analysis_report_file_path,
+            "phase": orchestrator.state.phase.value
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving analysis report: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve analysis report: {str(e)}")
+
+
+@router.get("/workflows/{workflow_id}/download-analysis-report")
+async def download_analysis_report(workflow_id: str):
+    """
+    Download the analysis report as a .txt file.
+    """
+    try:
+        manager = get_workflow_manager()
+        orchestrator = await manager.get_orchestrator(workflow_id)
+
+        if not orchestrator:
+            raise HTTPException(status_code=404, detail=f"Workflow not found: {workflow_id}")
+
+        if not orchestrator.state.analysis_report_file_path:
+            raise HTTPException(status_code=404, detail="Analysis report file not found")
+
+        report_file = Path(orchestrator.state.analysis_report_file_path)
+
+        if not report_file.exists():
+            raise HTTPException(status_code=404, detail="Analysis report file not found on disk")
+
+        return FileResponse(
+            path=str(report_file),
+            media_type="text/plain",
+            filename=report_file.name
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading analysis report: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to download analysis report: {str(e)}")
 
 
 @router.get("/workflows", response_model=WorkflowListResponse)
@@ -609,6 +804,14 @@ async def get_workflow_detail(workflow_id: str):
             output_file_path=detail.get("coder_summary", {}).get("output_path"),
             output_approved=detail.get("output_review_summary", {}).get("output_approved", False),
             output_refinement_iterations=detail.get("output_review_summary", {}).get("refinement_iterations", 0),
+            analysis_instructions=detail.get("analysis_instructions"),
+            analysis_instructions_approved=detail.get("analysis_instructions_approved", False),
+            analysis_plan=detail.get("analysis_plan"),
+            analysis_code=detail.get("analysis_code"),
+            analysis_report_file_path=detail.get("analysis_report_file_path"),
+            analysis_report_content=detail.get("analysis_report_content"),
+            analysis_report_approved=detail.get("analysis_report_approved", False),
+            analysis_refinement_iterations=detail.get("analysis_refinement_iterations", 0),
             error_message=detail.get("error_message"),
             is_successful=detail.get("is_successful", False)
         )
@@ -771,6 +974,139 @@ async def download_code(workflow_id: str):
     except Exception as e:
         logger.error(f"Error downloading code: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to download code: {str(e)}")
+
+
+@router.post("/workflows/{workflow_id}/make-live", response_model=MakeWorkflowLiveResponse)
+async def make_workflow_live(workflow_id: str, request: MakeWorkflowLiveRequest):
+    """
+    Make a workflow live in production/staging environment.
+
+    This endpoint:
+    1. Validates workflow is in correct phase (analysis_report_review)
+    2. Generates workflow configuration using LLM
+    3. Deploys to specified environment (Staging/Production)
+    4. Updates workflow state to LIVE phase
+    """
+    try:
+        from backend.api.services.production_api_client import get_production_api_client
+        from ai.ira_builder.utils.workflow_config_generator import (
+            generate_workflow_config,
+            validate_workflow_config
+        )
+        from ai.ira_builder.orchestrator import sanitize_filename
+        from datetime import datetime
+
+        # Get workflow manager and orchestrator
+        manager = get_workflow_manager()
+        orchestrator = await manager.get_orchestrator(workflow_id)
+
+        if not orchestrator:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+
+        # Validate workflow is in correct phase
+        # Allow both analysis_report_review and completed phases (in case user already approved without going live)
+        valid_phases = [WorkflowPhase.ANALYSIS_REPORT_REVIEW, WorkflowPhase.COMPLETED]
+        if orchestrator.state.phase not in valid_phases:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Workflow must be in analysis_report_review or completed phase to make it live. Current phase: {orchestrator.state.phase.value}"
+            )
+
+        # Auto-approve analysis report if not already approved
+        # This allows users to go directly from analysis report review to Live phase
+        if not orchestrator.state.analysis_report_approved:
+            logger.info("Analysis report not yet approved - auto-approving for Live deployment")
+            orchestrator.state.analysis_report_approved = True
+
+        logger.info(f"================================================================================")
+        logger.info(f"MAKING WORKFLOW LIVE")
+        logger.info(f"================================================================================")
+        logger.info(f"Workflow: {orchestrator.workflow_name}")
+        logger.info(f"Mode: {request.mode}")
+        logger.info(f"Business Process ID: {request.business_process_id}")
+
+        # Generate check_id if not provided
+        check_id = request.check_id
+        if not check_id:
+            # Auto-generate check_id from workflow name
+            check_id = sanitize_filename(orchestrator.workflow_name)[:20].upper()
+            check_id = f"{check_id}_{datetime.now().strftime('%Y%m%d')}"
+            logger.info(f"Auto-generated Check ID: {check_id}")
+
+        # Generate workflow config using LLM
+        logger.info(f"🔧 Generating workflow configuration...")
+
+        workflow_config = await generate_workflow_config(
+            workflow_name=orchestrator.workflow_name,
+            workflow_description=orchestrator.workflow_description,
+            business_logic_plan=orchestrator.state.business_logic_plan,
+            generated_code=orchestrator.state.generated_code,
+            analysis_instructions=orchestrator.state.analysis_instructions,
+            analysis_code=orchestrator.state.analysis_code,
+            file_analysis_results=orchestrator.state.file_analysis_results,
+            check_id=check_id
+        )
+
+        # Add tags if provided
+        if request.tags:
+            workflow_config["tags"] = request.tags
+            logger.info(f"Added tags: {request.tags}")
+
+        # Validate config
+        logger.info("✓ Validating workflow configuration...")
+        await validate_workflow_config(workflow_config)
+        logger.info("✓ Workflow configuration validated")
+
+        # Deploy to production/staging
+        logger.info(f"🚀 Deploying workflow to {request.mode}...")
+
+        prod_client = get_production_api_client(mode=request.mode)
+        deployment_status = prod_client.make_workflow_live(
+            workflow_config=workflow_config,
+            business_process_id=request.business_process_id
+        )
+
+        if deployment_status != 200:
+            logger.error(f"❌ Deployment failed with status code: {deployment_status}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Deployment failed with status code: {deployment_status}"
+            )
+
+        # Update orchestrator state
+        orchestrator.state.workflow_config = workflow_config
+        orchestrator.state.business_process_id = request.business_process_id
+        orchestrator.state.deployment_mode = request.mode
+        orchestrator.state.deployment_status = deployment_status
+        orchestrator.state.check_id = check_id
+        orchestrator.state.is_live = True
+        orchestrator.state.phase = WorkflowPhase.LIVE
+
+        # Persist state
+        orchestrator._persist_state()
+
+        logger.info(f"✅ WORKFLOW SUCCESSFULLY DEPLOYED TO {request.mode}")
+        logger.info(f"   - Check ID: {check_id}")
+        logger.info(f"   - Business Process ID: {request.business_process_id}")
+        logger.info(f"   - Status Code: {deployment_status}")
+        logger.info(f"================================================================================")
+
+        return MakeWorkflowLiveResponse(
+            status="success",
+            phase=WorkflowPhaseEnum.LIVE,
+            message=f"Workflow successfully deployed to {request.mode}",
+            deployment_status=deployment_status,
+            check_id=check_id,
+            business_process_id=request.business_process_id,
+            mode=request.mode,
+            workflow_config=workflow_config
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error making workflow live: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/workflows/{workflow_id}")

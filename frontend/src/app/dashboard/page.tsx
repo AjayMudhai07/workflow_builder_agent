@@ -186,9 +186,11 @@ export default function DashboardPage() {
                   onClick={() => {
                     // Navigate based on phase
                     if (workflow.phase === "completed") {
-                      router.push(`/workflow/${workflow.workflow_id}/results`);
+                      router.push(`/workflow/${workflow.workflow_id}/analysis`);
+                    } else if (workflow.phase === "analysis_report_generation" || workflow.phase === "analysis_report_review") {
+                      router.push(`/workflow/${workflow.workflow_id}/analysis`);
                     } else if (workflow.phase === "output_review") {
-                      router.push(`/workflow/${workflow.workflow_id}/results`);
+                      router.push(`/workflow/${workflow.workflow_id}/output`);
                     } else if (workflow.phase === "coding") {
                       router.push(`/workflow/${workflow.workflow_id}/generation`);
                     } else if (workflow.phase === "plan_review") {

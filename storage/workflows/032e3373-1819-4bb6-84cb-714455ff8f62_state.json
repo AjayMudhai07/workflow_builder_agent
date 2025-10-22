@@ -1,0 +1,22 @@
+{
+  "workflow_name": "Expenses document date for later period v/s posting date in previous period / qtr",
+  "workflow_description": "Flag line items where Document Date falls in a later accounting month-year than Posting Date, including across years, indicating potential timing irregularities.",
+  "csv_filepaths": [
+    "data/uploads/032e3373-1819-4bb6-84cb-714455ff8f62/FBL3N.csv"
+  ],
+  "phase": "failed",
+  "started_at": "2025-10-22T12:45:50.352998",
+  "completed_at": null,
+  "planner_questions_asked": 0,
+  "current_question": null,
+  "business_logic_plan": null,
+  "plan_approved": false,
+  "generated_code": null,
+  "code_execution_iterations": 0,
+  "output_file_path": null,
+  "output_approved": false,
+  "output_refinement_iterations": 0,
+  "cumulative_refinement_requirements": [],
+  "error_message": "Failed to initialize workflow: <class 'agent_framework.openai._chat_client.OpenAIChatClient'> service failed to complete the prompt: Error code: 404 - {'error': {'message': 'The model `gpt-5` does not exist or you do not have access to it.', 'type': 'invalid_request_error', 'code': 'model_not_found'}}",
+  "is_successful": false
+}

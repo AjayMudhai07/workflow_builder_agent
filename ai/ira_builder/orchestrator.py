@@ -22,6 +22,7 @@ from ai.ira_builder.agents.planner import (
 from ai.ira_builder.agents.coder import create_coder_agent, CoderAgent
 from ai.ira_builder.utils.logger import get_logger
 from ai.ira_builder.utils.config import get_config
+from ai.ira_builder.utils.file_analyzer import analyze_dataset
 
 logger = get_logger(__name__)
 
@@ -67,6 +68,9 @@ class WorkflowPhase(str, Enum):
     PLAN_REVIEW = "plan_review"
     CODING = "coding"
     OUTPUT_REVIEW = "output_review"
+    ANALYSIS_REPORT_GENERATION = "analysis_report_generation"
+    ANALYSIS_REPORT_REVIEW = "analysis_report_review"
+    LIVE = "live"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -113,6 +117,29 @@ class WorkflowState:
         self.output_refinement_iterations = 0
         self.cumulative_refinement_requirements: List[str] = []  # Track all refinement requirements
 
+        # Analysis report generation phase
+        self.analysis_instructions: Optional[str] = None
+        self.analysis_instructions_approved = False
+        self.analysis_plan: Optional[str] = None
+        self.analysis_code: Optional[str] = None
+        self.analysis_report_file_path: Optional[str] = None
+        self.analysis_report_content: Optional[str] = None
+        self.analysis_report_approved = False
+        self.analysis_refinement_iterations = 0
+        self.analysis_feedback_history: List[Dict[str, str]] = []
+
+        # File analysis (populated before planning)
+        self.file_analysis_results: Optional[Dict[str, Any]] = None
+        self.dataset_description: Optional[str] = None
+
+        # Live phase (deployment to production/staging)
+        self.workflow_config: Optional[Dict[str, Any]] = None
+        self.business_process_id: Optional[str] = None
+        self.deployment_mode: Optional[str] = None  # "Staging" or "Production"
+        self.deployment_status: Optional[int] = None  # HTTP status code from deployment
+        self.check_id: Optional[str] = None  # Unique check ID generated for this workflow
+        self.is_live = False
+
         # Status
         self.error_message: Optional[str] = None
         self.is_successful = False
@@ -136,6 +163,22 @@ class WorkflowState:
             "output_approved": self.output_approved,
             "output_refinement_iterations": self.output_refinement_iterations,
             "cumulative_refinement_requirements": self.cumulative_refinement_requirements,
+            "analysis_instructions": self.analysis_instructions,
+            "analysis_instructions_approved": self.analysis_instructions_approved,
+            "analysis_plan": self.analysis_plan,
+            "analysis_code": self.analysis_code,
+            "analysis_report_file_path": self.analysis_report_file_path,
+            "analysis_report_content": self.analysis_report_content,
+            "analysis_report_approved": self.analysis_report_approved,
+            "analysis_refinement_iterations": self.analysis_refinement_iterations,
+            "file_analysis_results": self.file_analysis_results,
+            "dataset_description": self.dataset_description,
+            "workflow_config": self.workflow_config,
+            "business_process_id": self.business_process_id,
+            "deployment_mode": self.deployment_mode,
+            "deployment_status": self.deployment_status,
+            "check_id": self.check_id,
+            "is_live": self.is_live,
             "error_message": self.error_message,
             "is_successful": self.is_successful,
         }
@@ -171,6 +214,16 @@ class WorkflowState:
         state.output_approved = data.get("output_approved", False)
         state.output_refinement_iterations = data.get("output_refinement_iterations", 0)
         state.cumulative_refinement_requirements = data.get("cumulative_refinement_requirements", [])
+        state.analysis_instructions = data.get("analysis_instructions")
+        state.analysis_instructions_approved = data.get("analysis_instructions_approved", False)
+        state.analysis_plan = data.get("analysis_plan")
+        state.analysis_code = data.get("analysis_code")
+        state.analysis_report_file_path = data.get("analysis_report_file_path")
+        state.analysis_report_content = data.get("analysis_report_content")
+        state.analysis_report_approved = data.get("analysis_report_approved", False)
+        state.analysis_refinement_iterations = data.get("analysis_refinement_iterations", 0)
+        state.file_analysis_results = data.get("file_analysis_results")
+        state.dataset_description = data.get("dataset_description")
         state.error_message = data.get("error_message")
         state.is_successful = data.get("is_successful", False)
 
@@ -213,7 +266,7 @@ class IRAOrchestrator:
         csv_filepaths: List[str],
         output_filename: str = "result.csv",
         workflow_id: Optional[str] = None,
-        model: str = "gpt-5",
+        model: Optional[str] = None,
         max_planner_questions: int = 10,
         max_coder_iterations: int = 5,
         code_execution_timeout: int = 120,
@@ -231,7 +284,7 @@ class IRAOrchestrator:
             csv_filepaths: List of absolute paths to CSV files
             output_filename: Name for output file (default: result.csv)
             workflow_id: Unique identifier for the workflow (optional, defaults to sanitized workflow_name)
-            model: OpenAI model to use for both agents
+            model: Model to use (or None to use provider default from config)
             max_planner_questions: Maximum questions Planner can ask
             max_coder_iterations: Maximum code generation attempts
             code_execution_timeout: Timeout for code execution in seconds
@@ -244,7 +297,7 @@ class IRAOrchestrator:
         self.workflow_description = workflow_description
         self.csv_filepaths = csv_filepaths
         self.output_filename = output_filename
-        self.model = model
+        self.model = model  # Can be None - will use provider default
 
         # State management
         self.state = WorkflowState(workflow_name, workflow_description, csv_filepaths)
@@ -280,6 +333,53 @@ class IRAOrchestrator:
 
         logger.info(f"Orchestrator initialized for workflow: {workflow_name}")
 
+    async def analyze_uploaded_files(self) -> Dict[str, Any]:
+        """
+        Analyze uploaded CSV files using LLM to generate:
+        1. Column descriptions for each column in each file
+        2. File description for each file
+        3. Overall dataset description
+
+        This analysis provides rich context to the Planner agent.
+
+        Returns:
+            Dictionary with status and analysis results
+        """
+        try:
+            logger.info("=" * 80)
+            logger.info("ANALYZING UPLOADED FILES")
+            logger.info("=" * 80)
+            logger.info(f"Files to analyze: {len(self.csv_filepaths)}")
+
+            # Run file analysis using LLM (Groq for speed)
+            analysis_result = await analyze_dataset(self.csv_filepaths)
+
+            # Store results in state
+            self.state.file_analysis_results = analysis_result
+            self.state.dataset_description = analysis_result.get("dataset_description")
+
+            # Persist state
+            self._persist_state()
+
+            logger.info("✅ File analysis completed successfully")
+            logger.info(f"   - Total files analyzed: {analysis_result.get('total_files', 0)}")
+            logger.info(f"   - Total columns: {analysis_result.get('total_columns', 0)}")
+            logger.info(f"   - Total rows: {analysis_result.get('total_rows', 0)}")
+            logger.info(f"   - Dataset description: {self.state.dataset_description[:100]}...")
+
+            return {
+                "status": "success",
+                "analysis_result": analysis_result
+            }
+
+        except Exception as e:
+            logger.error(f"Error analyzing files: {str(e)}", exc_info=True)
+            # Don't fail the workflow - continue without file analysis
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+
     async def start(self) -> Dict[str, Any]:
         """
         Start the workflow by initializing the Planner Agent.
@@ -298,12 +398,26 @@ class IRAOrchestrator:
         self._change_phase(WorkflowPhase.PLANNING)
 
         try:
-            # Create Planner Agent
+            # Step 1: Analyze uploaded files to provide context to Planner
+            logger.info("Step 1: Analyzing uploaded CSV files...")
+            await self.analyze_uploaded_files()
+
+            # Step 2: Create Planner Agent (using phase-specific provider)
+            logger.info("Step 2: Creating Planner Agent...")
+            config = get_config()
             self.planner = create_planner_agent(
                 model=self.model,
                 temperature=0.7,
-                max_questions=self.max_planner_questions
+                max_questions=self.max_planner_questions,
+                provider=config.planner_provider
             )
+            logger.info(f"Planner Agent created with provider: {config.planner_provider}")
+
+            # Step 3: Inject file analysis into Planner's memory (if available)
+            if self.state.file_analysis_results:
+                logger.info("Step 3: Injecting file analysis into Planner memory...")
+                self.planner.csv_memory.set_file_analysis(self.state.file_analysis_results)
+                logger.info("✅ File analysis injected into Planner context")
 
             logger.info("Initializing Planner Agent...")
 
@@ -711,14 +825,14 @@ Output the COMPLETE updated Business Logic Plan with:
                 "error": str(e)
             }
 
-    async def approve_output_and_complete(self) -> Dict[str, Any]:
+    async def approve_output_and_continue(self) -> Dict[str, Any]:
         """
-        Approve the output and complete the workflow.
+        Approve the output and proceed to analysis report generation.
 
-        This transitions from OUTPUT_REVIEW to COMPLETED phase.
+        This transitions from OUTPUT_REVIEW to ANALYSIS_REPORT_GENERATION phase.
 
         Returns:
-            Dictionary with completion status
+            Dictionary with analysis instructions generation result
         """
         if self.state.phase != WorkflowPhase.OUTPUT_REVIEW:
             return {
@@ -728,29 +842,19 @@ Output the COMPLETE updated Business Logic Plan with:
 
         try:
             logger.info("=" * 80)
-            logger.info("OUTPUT APPROVED - WORKFLOW COMPLETED")
+            logger.info("OUTPUT APPROVED - PROCEEDING TO ANALYSIS REPORT GENERATION")
             logger.info("=" * 80)
 
             self.state.output_approved = True
-            self.state.is_successful = True
-            self.state.completed_at = datetime.now()
-            self._change_phase(WorkflowPhase.COMPLETED)
             self._persist_state()
 
-            execution_time = (self.state.completed_at - self.state.started_at).total_seconds()
+            logger.info("✅ Output approved, generating analysis instructions...")
 
-            logger.info(f"✅ Workflow completed successfully in {execution_time:.2f} seconds")
-
-            return {
-                "status": "success",
-                "phase": self.state.phase.value,
-                "output_path": self.state.output_file_path,
-                "execution_time": execution_time,
-                "is_successful": True
-            }
+            # Automatically generate analysis instructions
+            return await self.generate_analysis_instructions()
 
         except Exception as e:
-            logger.error(f"Error completing workflow: {str(e)}", exc_info=True)
+            logger.error(f"Error approving output: {str(e)}", exc_info=True)
             return {
                 "status": "error",
                 "error": str(e)
@@ -944,6 +1048,870 @@ Output the COMPLETE updated Business Logic Plan with:
                 "error": str(e)
             }
 
+    # =========================================================================
+    # ANALYSIS REPORT GENERATION METHODS
+    # =========================================================================
+
+    async def generate_analysis_instructions(self) -> Dict[str, Any]:
+        """
+        Generate analysis report instructions based on workflow context.
+
+        This is called after output is approved to move to analysis report phase.
+        Uses Groq mode to generate instructions describing what will be in the report.
+
+        Returns:
+            Dictionary with generated instructions
+        """
+        if self.state.phase != WorkflowPhase.OUTPUT_REVIEW:
+            return {
+                "status": "error",
+                "error": "Can only generate analysis instructions after output review"
+            }
+
+        try:
+            logger.info("=" * 80)
+            logger.info("GENERATING ANALYSIS REPORT INSTRUCTIONS")
+            logger.info("=" * 80)
+
+            # Transition to analysis report generation phase
+            self._change_phase(WorkflowPhase.ANALYSIS_REPORT_GENERATION)
+
+            # Create a simple chat client using Groq (coder_provider)
+            from ai.ira_builder.utils.llm_provider import create_chat_client
+            config = get_config()
+
+            chat_client = create_chat_client(
+                provider=config.coder_provider,
+                model=None  # Use provider default
+            )
+
+            # Create prompt for generating instructions
+            prompt = f"""You are generating concise analysis report instructions for a data analysis workflow.
+
+**Workflow Context:**
+- **Workflow Name:** {self.workflow_name}
+- **Workflow Description:** {self.workflow_description}
+
+**Business Logic Plan:**
+{self.state.business_logic_plan}
+
+**Generated Code (how output was created):**
+```python
+{self.state.generated_code}
+```
+
+**IMPORTANT:**
+- The Business Logic Plan explains WHAT the workflow is supposed to do and WHY
+- The Generated Code shows HOW the output DataFrame was created from raw input data
+- Use both to understand: What validations were performed? Was data filtered or do all rows remain with flags? What columns were added?
+- The analysis report will be generated by an LLM with token limits, so keep instructions BRIEF and focused on HIGH-LEVEL SUMMARIES only
+
+**CRITICAL - Analysis Report Input:**
+- The analysis report code will ONLY receive the OUTPUT CSV file from the generated code above
+- It will NOT have access to any raw input files
+- All analysis must be performed on the OUTPUT CSV ONLY
+- The instructions should reference columns that exist in the OUTPUT CSV, not raw data
+
+**CRITICAL - Understanding Data Filtering:**
+- LOOK AT THE GENERATED CODE to see if data was FILTERED
+- If the code has filtering like `df[df['Exception_Flag'] == 1]`, then OUTPUT contains ONLY exceptions
+- In this case, counting rows gives exception count directly - NO NEED to filter again or calculate percentages
+- If OUTPUT is already filtered to exceptions, instructions should NOT say "count rows where Exception_Flag = 1" - just say "count all rows"
+- If OUTPUT contains all data with flags, then instructions should say "count rows where Exception_Flag = 1"
+- Be accurate about whether to filter or just count based on what the generated code already did
+
+Based on the Business Logic Plan and Generated Code, generate concise instructions covering these points:
+
+---
+
+# Analysis Report Instructions
+
+## 1. Exception Summary
+- Total count of exceptions identified (based on whether output is filtered or contains all rows with flags)
+- If output already filtered to exceptions only, just count total rows
+- If output contains all rows with exception flag, count rows where flag indicates exception
+
+## 2. Key Trends by Dimensions
+- Analyze exception distribution by 3-5 key dimensions (specify which columns)
+- Identify which entities/categories have the most exceptions
+
+## 3. Time-Based Trends
+[Only if applicable]
+- Exception count by time period (month/quarter)
+- Peak period with highest exceptions
+
+## 4. Monetary Impact
+[Only if applicable]
+- Total value, average value, and range of exceptions
+- Specify which amount column to use
+
+## 5. Statistical Analysis
+[Include if data is suitable for statistical/ML analysis]
+- Correlation analysis between numeric columns (if multiple numeric columns exist)
+- Distribution analysis (mean, median, std dev, outliers)
+- Regression analysis to identify key factors (if applicable)
+- Clustering patterns (if categories show groupings)
+
+## 6. Overall Observations
+- Main patterns from the exception data
+- Notable findings from statistical analysis
+- Actionable insights
+
+## 7. No Exceptions Case
+If no exceptions found, state: "No exceptions identified"
+
+---
+
+IMPORTANT:
+- Keep it CONCISE and SIMPLE - users should easily understand and edit these instructions
+- Be SPECIFIC - use actual column names from the workflow
+- Focus on HIGH-LEVEL SUMMARIES only (no detailed data extraction)
+- Each section: 2-4 bullet points maximum
+- For statistical analysis, only suggest it if data is suitable (numeric columns, sufficient rows, etc.)
+- DO NOT reference specific systems (SAP, Oracle, etc.) unless they appear in the workflow context
+- Use generic terms like "documents", "records", "transactions" instead of system-specific terminology
+- Avoid making assumptions about data sources - just describe the analysis to perform
+- The LLM generating the report will understand the context from the Business Logic Plan and code you saw above
+"""
+
+            # Make the LLM call
+            from agent_framework import ChatAgent
+            temp_agent = ChatAgent(
+                name="Analysis-Instruction-Generator",
+                chat_client=chat_client,
+                instructions="You generate clear, structured analysis report instructions.",
+                tools=[]
+            )
+
+            thread = temp_agent.get_new_thread()
+            instructions = await temp_agent.run(prompt, thread=thread)
+
+            self.state.analysis_instructions = str(instructions)
+            self._persist_state()
+
+            logger.info("✅ Analysis report instructions generated")
+            logger.info(f"Instructions preview: {str(instructions)[:200]}...")
+
+            return {
+                "status": "success",
+                "phase": self.state.phase.value,
+                "instructions": str(instructions)
+            }
+
+        except Exception as e:
+            logger.error(f"Error generating analysis instructions: {str(e)}", exc_info=True)
+            self._change_phase(WorkflowPhase.OUTPUT_REVIEW)
+            self._persist_state()
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+
+    async def approve_analysis_instructions(self, edited_instructions: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Approve analysis instructions (possibly edited by user) and generate analysis report.
+
+        Args:
+            edited_instructions: User-edited instructions (if None, use generated ones)
+
+        Returns:
+            Dictionary with analysis report generation results
+        """
+        if self.state.phase != WorkflowPhase.ANALYSIS_REPORT_GENERATION:
+            return {
+                "status": "error",
+                "error": "Can only approve instructions in ANALYSIS_REPORT_GENERATION phase"
+            }
+
+        try:
+            logger.info("=" * 80)
+            logger.info("ANALYSIS INSTRUCTIONS APPROVED - GENERATING REPORT")
+            logger.info("=" * 80)
+
+            # Update instructions if user edited them
+            if edited_instructions:
+                self.state.analysis_instructions = edited_instructions
+                logger.info("Using user-edited instructions")
+
+            self.state.analysis_instructions_approved = True
+            self._persist_state()
+
+            # Now generate the analysis report
+            return await self.generate_analysis_report()
+
+        except Exception as e:
+            logger.error(f"Error approving analysis instructions: {str(e)}", exc_info=True)
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+
+    async def generate_analysis_report(self) -> Dict[str, Any]:
+        """
+        Generate analysis report code and execute it to create .txt report.
+
+        Uses Coder agent (with Groq) to generate code that:
+        1. Reads the output CSV from previous step
+        2. Performs analysis as per instructions
+        3. Generates a .txt report file
+
+        Returns:
+            Dictionary with report content and file path
+        """
+        if not self.state.analysis_instructions_approved:
+            return {
+                "status": "error",
+                "error": "Analysis instructions must be approved first"
+            }
+
+        try:
+            logger.info("=" * 80)
+            logger.info("GENERATING ANALYSIS REPORT CODE")
+            logger.info("=" * 80)
+
+            # Create Coder Agent with Groq provider
+            config = get_config()
+            if not self.coder:
+                self.coder = create_coder_agent(
+                    model=None,
+                    temperature=0.3,
+                    max_iterations=self.max_coder_iterations,
+                    execution_timeout=self.code_execution_timeout,
+                    provider=config.coder_provider
+                )
+                logger.info(f"Coder Agent created with provider: {config.coder_provider}")
+
+            # Create analysis plan prompt using the structured planner approach
+            analysis_plan_prompt = f"""You are a Planner. You have been provided with a processed dataframe, derived from raw data according to a specific query. Your primary responsibility is to conduct a detailed analysis of a particular question in relation to the headers of the provided dataframe. Your goal is to develop a comprehensive, step-by-step strategy that will guide a coder agent in creating an in-depth analysis report. This report should not only address the user's query directly but also uncover additional insights and observations that may be relevant.
+
+**Workflow Context:**
+- **Workflow Name:** {self.workflow_name}
+- **Workflow Description:** {self.workflow_description}
+
+**User's Question/Query:**
+{self.state.analysis_instructions}
+
+**Understanding Previous Data Processing Steps:**
+The raw data has been processed according to the following Business Logic Plan:
+
+{self.state.business_logic_plan}
+
+**Generated Code (How the Filtered DataFrame Was Created):**
+```python
+{self.state.generated_code}
+```
+
+**Input Data Available for Analysis:**
+- The output CSV file: {self.state.output_file_path}
+- This CSV contains the processed dataframe with all validation results
+
+#### Step-by-Step Strategy
+
+1. **Understanding the Query**:
+   - Start by thoroughly examining the user's question in the Analysis Instructions above
+   - Break it down to grasp its core components, paying special attention to any explicit requirements or constraints mentioned
+   - Consider the broader context and the underlying purpose of the query to ensure a comprehensive understanding
+
+2. **Understanding Previous Data Processing Steps**:
+   - Understand what data processing steps have been taken so far to generate this filtered dataframe
+   - As per the user query, previous agents have processed raw data as per the Business Logic Plan to generate this filtered dataframe
+   - Review the Generated Code to see exactly how the output dataframe was created
+
+3. **Examining Filtered Dataframe Headers**:
+   - Carefully review the dataframe columns (visible in the Generated Code) to identify columns that directly relate to the user's question
+   - Also identify other columns that, while not directly related, could provide valuable insights or contribute to a more nuanced understanding of the data
+   - Remember, the user can view the dataframe; focus on performing meaningful analysis that answers the question and offers additional insights
+
+4. **Defining Analysis Objectives**:
+   - Clearly state the objectives of your analysis, including both the primary goal focused on the user's query and secondary goals aimed at uncovering further insights
+   - Ensure these objectives are SMART (Specific, Measurable, Achievable, Relevant, Time-bound) to guide a focused and effective analysis
+   - Keep in mind that the user can view the dataframe; your analysis should go beyond mere data extraction to provide useful insights
+
+5. **Selecting Analysis Techniques**:
+   - Outline the statistical and ML methods that are most appropriate for analyzing the data in light of your objectives
+   - Consider using scikit-learn for: correlation analysis, linear/logistic regression, clustering (KMeans), outlier detection
+   - Match these techniques with their intended objectives in a logical and systematic manner
+   - For basic statistics: use simple pandas operations like len(), value_counts(), sum(), mean(), median(), std()
+   - For advanced analysis: correlation matrices, regression to identify key factors, clustering to find patterns
+   - IMPORTANT: Only suggest ML techniques if data is suitable (sufficient numeric columns, adequate sample size)
+   - Do NOT include any coding instructions or visualization plans - focus only on WHAT analysis should be done, not HOW to code it
+
+6. **Planning Data Aggregation**:
+   - Determine which columns are relevant for grouping and aggregation based on the demands of the query
+   - Specify the precise statistical aggregations needed (e.g., count, sum, mean) to support your analysis effectively
+   - Keep aggregations simple and avoid complex date manipulations
+
+7. **Identifying Key Metrics**:
+   - Identify crucial metrics or indicators that will play a key role in answering the user's question
+   - Also consider other metrics that could reveal additional insights into the dataset, enhancing the depth of your analysis
+
+**Instruction**:
+Your response should strictly focus on Steps 3, 4, 5, 6, and 7 only, guiding the coder agent on what analysis needs to be done to generate an analysis report with data.
+
+**Note:** Please add 'TERMINATE' at the end of your final response to indicate completion."""
+
+            # Initialize Coder with analysis task
+            from agent_framework import ChatAgent
+            from ai.ira_builder.utils.llm_provider import create_chat_client
+
+            chat_client = create_chat_client(
+                provider=config.coder_provider,
+                model=None
+            )
+
+            # Create planner for analysis plan
+            planner_agent = ChatAgent(
+                name="Analysis-Planner",
+                chat_client=chat_client,
+                instructions="You create detailed analysis plans for data reporting.",
+                tools=[]
+            )
+
+            thread = planner_agent.get_new_thread()
+            analysis_plan = await planner_agent.run(analysis_plan_prompt, thread=thread)
+
+            self.state.analysis_plan = str(analysis_plan)
+            self._persist_state()
+
+            logger.info("✅ Analysis plan generated")
+            logger.info(f"Plan preview: {str(analysis_plan)[:300]}...")
+
+            # Now generate code using Coder agent
+            logger.info("Generating analysis report code...")
+
+            code_prompt = f"""Generate professional Python code to create a comprehensive analysis report.
+
+**Workflow Context:**
+- Workflow Name: {self.workflow_name}
+- Workflow Description: {self.workflow_description}
+
+**Business Logic Plan (How the output data was created):**
+{self.state.business_logic_plan}
+
+**Generated Code (How exceptions were filtered/processed):**
+```python
+{self.state.generated_code}
+```
+
+**IMPORTANT CONTEXT:**
+- The OUTPUT CSV you are analyzing was created by the code above
+- Understand what filters were applied (e.g., only exception rows, specific conditions)
+- If code filtered for exceptions, then all rows in output ARE exceptions
+- Reference the Business Logic Plan to understand what was validated and why
+- Don't assume output contains all original data - it may be filtered
+
+**Analysis Instructions:**
+{self.state.analysis_instructions}
+
+**Analysis Plan:**
+{analysis_plan}
+
+**Code Template (MUST follow exactly):**
+
+```python
+# PART 1: IMPORT LIBRARIES
+# NOTE: NO IRA PREPROCESSING - This is analysis code, not data processing code!
+import pandas as pd
+import numpy as np
+from pathlib import Path
+from datetime import datetime
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.cluster import KMeans
+from sklearn.ensemble import IsolationForest
+import warnings
+warnings.filterwarnings('ignore')
+
+# DO NOT import ira - this is not a data processing workflow!
+
+# PART 2: FILE PATHS AND FILE LOADING
+# CRITICAL: DO NOT use hardcoded paths - use the provided variables
+input_csv_path = csv_files[0]  # The already-processed CSV from the workflow
+output_file_path = output_path  # The .txt file where the report will be saved
+
+# Load the already-processed CSV file
+# NOTE: This CSV is the OUTPUT from the previous workflow step - do NOT apply IRA preprocessing!
+df = pd.read_csv(input_csv_path)
+print(f"Loaded {{len(df):,}} rows from processed output CSV")
+
+# PART 3: ANALYSIS AND REPORT GENERATION
+# Build the report as a list of text lines
+report_lines = []
+
+# HEADER SECTION
+report_lines.append("=" * 80)
+report_lines.append("WORKFLOW ANALYSIS REPORT")
+report_lines.append(f"Workflow: [USE WORKFLOW NAME FROM CONTEXT]")
+report_lines.append(f"Description: [USE WORKFLOW DESCRIPTION FROM CONTEXT]")
+report_lines.append(f"Generated on: {{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}}")
+report_lines.append("=" * 80)
+report_lines.append("")
+
+# SECTION 1: EXCEPTION COUNT / DATASET OVERVIEW
+report_lines.append("1. EXCEPTION COUNT")
+report_lines.append("-" * 80)
+report_lines.append(f"   Total Exceptions Identified: {{len(df):,}}")
+report_lines.append("")
+
+# SECTION 2: KEY TRENDS AND PATTERNS
+report_lines.append("2. KEY TRENDS AND PATTERNS")
+report_lines.append("-" * 80)
+# Analyze top categories/dimensions
+# Example: Top 10 by exception count
+# ⚠️ IMPORTANT: When using groupby().size(), the grouped column becomes INDEX
+# CORRECT WAY:
+# top_categories = df.groupby('category_column').size().sort_values(ascending=False).head(10)
+# for category, count in top_categories.items():  # Use .items(), not .iterrows()
+#     report_lines.append(f"   • {{category}}: {{count:,}} exceptions")
+#
+# ALTERNATIVE: Convert to DataFrame first
+# top_df = df.groupby('category_column').size().reset_index(name='Exception_Count').head(10)
+# for i, row in top_df.iterrows():
+#     report_lines.append(f"   • {{row['category_column']}}: {{int(row['Exception_Count']):,}} exceptions")
+report_lines.append("")
+
+# SECTION 3: TIME-BASED TRENDS (if applicable)
+report_lines.append("3. PEAK PERIOD TRENDS")
+report_lines.append("-" * 80)
+# Analyze by time period if date columns exist
+# period_analysis = df.groupby('period_column').size()
+# peak_period = period_analysis.idxmax()
+# report_lines.append(f"   Peak Period: {{peak_period}} with {{period_analysis.max()}} exceptions")
+report_lines.append("")
+
+# SECTION 4: MONETARY IMPACT (if applicable)
+report_lines.append("4. MONETARY IMPACT")
+report_lines.append("-" * 80)
+# Analyze monetary columns if they exist
+# total_amount = df['amount_column'].sum()
+# avg_amount = df['amount_column'].mean()
+# report_lines.append(f"   Total Amount: ${{total_amount:,.2f}}")
+# report_lines.append(f"   Average Amount: ${{avg_amount:,.2f}}")
+report_lines.append("")
+
+# SECTION 5: STATISTICAL ANALYSIS (if applicable)
+report_lines.append("5. STATISTICAL ANALYSIS")
+report_lines.append("-" * 80)
+# Perform correlation, regression, clustering as per analysis plan
+# Example correlation:
+# numeric_cols = df.select_dtypes(include=[np.number]).columns
+# if len(numeric_cols) > 1:
+#     corr_matrix = df[numeric_cols].corr()
+#     # Report top correlations
+report_lines.append("")
+
+# SECTION 6: OVERALL OBSERVATIONS
+report_lines.append("6. OVERALL OBSERVATIONS")
+report_lines.append("-" * 80)
+# Summarize key findings
+# report_lines.append(f"   • {{observation_1}}")
+# report_lines.append(f"   • {{observation_2}}")
+report_lines.append("")
+
+# SECTION 7: RECOMMENDATIONS (if applicable)
+report_lines.append("7. RECOMMENDATIONS")
+report_lines.append("-" * 80)
+# Provide actionable recommendations
+report_lines.append("")
+
+# FOOTER
+report_lines.append("=" * 80)
+report_lines.append("END OF ANALYSIS")
+report_lines.append("=" * 80)
+
+# Build final report (join all report lines into a single string)
+report_content = "\\n".join(report_lines)
+
+# ⚠️ CRITICAL: Write to .TXT file (NOT CSV!)
+# This MUST use open() and write(), NOT df.to_csv()
+with open(output_file_path, 'w') as f:
+    f.write(report_content)
+
+print(f"✓ Analysis report saved to: {{output_file_path}}")
+
+# ❌ DO NOT write: result_df.to_csv(output_file_path, index=False)
+# ❌ DO NOT create or save any CSV files
+# ✅ The output file MUST be a text report, not a CSV!
+```
+
+**❌❌❌ CRITICAL - WHAT THIS CODE SHOULD NOT DO ❌❌❌**
+
+THIS IS NOT A DATA PROCESSING WORKFLOW! DO NOT:
+- ❌ Use IRA preprocessing (no ira.convert_date_column, no ira.clean_strings_batch, etc.)
+- ❌ Perform data transformations or calculations
+- ❌ Filter or modify the dataframe
+- ❌ Use df.to_csv() - this creates a CSV file, NOT a text report!
+- ❌ Generate validation logic or business rules
+- ❌ Process raw data - the data is ALREADY PROCESSED
+
+**✅✅✅ WHAT THIS CODE SHOULD DO ✅✅✅**
+
+THIS IS AN ANALYSIS REPORT GENERATOR! YOU MUST:
+- ✅ Read the ALREADY-PROCESSED CSV file (it's the output from previous step)
+- ✅ Analyze the data using pandas operations (groupby, value_counts, sum, mean, etc.)
+- ✅ Build a text report as a list of strings (report_lines.append())
+- ✅ Write the report to a .TXT file using: with open(output_file_path, 'w') as f: f.write(report_content)
+- ✅ The output MUST be a human-readable text report, NOT a CSV file!
+
+**CRITICAL Instructions - READ CAREFULLY:**
+
+1. MANDATORY STRUCTURE:
+   - MUST follow the template structure with proper headers and sections
+   - Use "=" * 80 for main dividers, "-" * 80 for section dividers
+   - Include clear section numbers (1., 2., 3., etc.)
+   - Add proper indentation (3-6 spaces) for subsection content
+   - Header MUST use actual workflow name and description from context (not placeholder text)
+   - End with "END OF ANALYSIS" footer
+   - Do NOT use "SAP" or other company names unless they appear in workflow context
+
+2. FILE PATHS:
+   - Use csv_files[0] for input (NOT hardcoded paths)
+   - Use output_path variable for output (NOT hardcoded paths)
+   - INPUT is the already-processed CSV from the workflow
+   - OUTPUT is a .TXT file containing the analysis report
+
+3. REPORT FORMATTING:
+   - Format numbers with commas: f"{{value:,}}" or f"{{value:,.2f}}"
+   - Use bullet points (•) for observations
+   - Indent lists and sub-points properly
+   - Keep lines readable (avoid overly long lines)
+   - Use descriptive labels, not just raw values
+
+4. ALLOWED Basic Pandas Operations:
+   - len(df), df['column'].value_counts(), df['column'].sum(), df['column'].mean()
+   - df['column'].describe(), df['column'].quantile([0.25, 0.5, 0.75])
+   - df.groupby('col')['col2'].count(), df.groupby('col')['col2'].sum()
+   - df.groupby('col').size().sort_values(ascending=False).head(10)
+   - df[df['col'] == value] - basic filtering
+   - df.select_dtypes(include=[np.number]) - select numeric columns
+
+   ⚠️ CRITICAL - Handling Grouped Data:
+   - When you do: grouped = df.groupby('Company Code').size()
+   - The result is a Series where 'Company Code' is the INDEX, not a column!
+   - To iterate: for company_code, count in grouped.items():
+   - NOT: for row in grouped.iterrows(): row['Company Code']  ❌ This will fail!
+   - If you need DataFrame: grouped.reset_index(name='Count') to convert index to column
+
+5. HANDLING LARGE DATASETS:
+   - ⚠️ CRITICAL: If dataset has more than 100,000 rows, SAMPLE IT FIRST!
+   - Use: df_sample = df.sample(n=min(50000, len(df)), random_state=42)
+   - Perform analysis on the sample to avoid timeouts
+   - Mention in report: "Analysis based on sample of X rows"
+
+6. STATISTICAL/ML Operations - USE SPARINGLY:
+   - Basic stats only: df['col'].describe(), df.corr() for correlation
+   - ⚠️ AVOID EXPENSIVE OPERATIONS on large datasets:
+     - NO LinearRegression, KMeans, IsolationForest if > 50K rows
+     - NO complex ML that takes > 5 seconds
+   - If you must use ML, use the sampled dataset (max 50K rows)
+   - Always use try-except blocks for ML operations
+
+7. FORBIDDEN operations (DO NOT USE):
+   - df['date_col'].dt.to_period() - NO date period conversions
+   - df['date_col'].dt.anything() - NO datetime operations
+   - Complex string operations or regex
+   - Pivot tables or complex reshaping
+   - Complex ML models (neural networks, ensemble methods beyond what's shown)
+
+8. DATA PRESENTATION:
+   - Show TOP 10 items for categories/trends (not all data)
+   - Calculate percentages where relevant
+   - Provide totals, averages, min, max for monetary values
+   - Use descriptive category names (include column values, not just keys)
+   - Present data in ranked/sorted order (highest to lowest)
+
+9. ANALYSIS REQUIREMENTS:
+   - Each section MUST have actual data analysis, not just headers
+   - Provide insights, not just raw numbers
+   - Include context and interpretation
+   - Add observations about patterns and anomalies
+   - Suggest recommendations based on findings
+
+10. DATA CONTEXT UNDERSTANDING:
+   - Read the Business Logic Plan and Generated Code to understand what the output data represents
+   - If the generated code filtered for exceptions (e.g., df[df['exception_flag'] == 1]), then ALL rows in output are exceptions
+   - Don't say "32,067 exceptions out of total rows" if all rows ARE the exceptions
+   - Understand what columns were added (flags, calculations) vs original data
+   - Know whether output is filtered or complete dataset
+   - Reference the validation logic when explaining findings
+
+Generate complete, professional-quality analysis code now."""
+
+            # CRITICAL: For analysis reports, we need to bypass the Coder agent's Business Logic workflow
+            # and directly generate simple analysis code using a Chat agent
+
+            # Create a simple code generation prompt that doesn't confuse the Coder
+            simple_code_prompt = f"""⚠️⚠️⚠️ THIS IS NOT A WORKFLOW CODE GENERATION TASK! ⚠️⚠️⚠️
+
+This is an ANALYSIS REPORT generation task. You must generate code that:
+- ✅ Reads an ALREADY-PROCESSED CSV file
+- ✅ Analyzes the data
+- ✅ Writes a TEXT REPORT (NOT a CSV!)
+
+❌ DO NOT generate workflow code
+❌ DO NOT use IRA preprocessing
+❌ DO NOT use df.to_csv()
+❌ DO NOT apply business logic or transformations
+
+**YOUR TASK:**
+Generate Python code to analyze a CSV file and write an analysis report to a .txt file.
+
+**INPUT:**
+- CSV file path: csv_files[0] (this is ALREADY PROCESSED data)
+- Output file path: output_path (this will be a .txt file)
+
+**WHAT TO ANALYZE:**
+{self.state.analysis_instructions}
+
+**HOW TO ANALYZE:**
+{analysis_plan}
+
+**CODE TEMPLATE - FOLLOW THIS EXACTLY:**
+
+```python
+import pandas as pd
+import numpy as np
+from datetime import datetime
+
+# Load data
+df = pd.read_csv(csv_files[0])
+
+# Build report
+report_lines = []
+report_lines.append("=" * 80)
+report_lines.append("WORKFLOW ANALYSIS REPORT")
+report_lines.append(f"Workflow: {self.workflow_name}")
+report_lines.append(f"Generated on: {{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}}")
+report_lines.append("=" * 80)
+
+# Add your analysis sections here
+# Example: report_lines.append(f"Total rows: {{len(df):,}}")
+
+# Build and write report
+report_content = "\\n".join(report_lines)
+with open(output_path, 'w') as f:
+    f.write(report_content)
+```
+
+Generate the complete analysis code following this structure. Focus on ANALYZING the data, not transforming it!"""
+
+            # Initialize coder workflow with the simple prompt
+            init_result = await self.coder.initialize_workflow(
+                workflow_name=f"{self.workflow_name} - Analysis Report",
+                business_logic_plan=simple_code_prompt,
+                csv_filepaths=[self.state.output_file_path],
+                output_filename=f"{sanitize_filename(self.workflow_name)}_analysis_report.txt"
+            )
+
+            logger.info("Coder initialized for analysis report generation")
+
+            # Generate and execute code
+            result = await self.coder.generate_and_execute_code()
+
+            if result['status'] == 'success':
+                logger.info("✅ ANALYSIS REPORT GENERATED SUCCESSFULLY")
+
+                self.state.analysis_code = result['code']
+                # Get the actual output path from coder result
+                actual_output_path = result.get('output_path')
+
+                if actual_output_path and Path(actual_output_path).exists():
+                    self.state.analysis_report_file_path = actual_output_path
+                    # Read the report content
+                    with open(actual_output_path, 'r') as f:
+                        self.state.analysis_report_content = f.read()
+
+                    logger.info(f"📄 Analysis report saved to: {actual_output_path}")
+                else:
+                    logger.warning(f"Expected .txt file not found at {actual_output_path}")
+                    self.state.analysis_report_content = "Report file not found. Code executed but output location may differ."
+
+                # Transition to review phase
+                self._change_phase(WorkflowPhase.ANALYSIS_REPORT_REVIEW)
+                self._persist_state()
+
+                return {
+                    "status": "success",
+                    "phase": self.state.phase.value,
+                    "analysis_plan": self.state.analysis_plan,
+                    "code": self.state.analysis_code,
+                    "report_file_path": self.state.analysis_report_file_path,
+                    "report_content": self.state.analysis_report_content,
+                    "iterations": result.get('iterations', 0)
+                }
+            else:
+                logger.error(f"❌ ANALYSIS REPORT GENERATION FAILED: {result.get('error')}")
+                return {
+                    "status": "error",
+                    "phase": self.state.phase.value,
+                    "error": result.get('error'),
+                    "iterations": result.get('iterations', 0)
+                }
+
+        except Exception as e:
+            logger.error(f"Error generating analysis report: {str(e)}", exc_info=True)
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+
+    async def approve_analysis_report(self) -> Dict[str, Any]:
+        """
+        Approve the analysis report and complete the workflow.
+
+        This transitions from ANALYSIS_REPORT_REVIEW to COMPLETED phase.
+
+        Returns:
+            Dictionary with completion status
+        """
+        if self.state.phase != WorkflowPhase.ANALYSIS_REPORT_REVIEW:
+            return {
+                "status": "error",
+                "error": "Can only approve analysis report in ANALYSIS_REPORT_REVIEW phase"
+            }
+
+        try:
+            logger.info("=" * 80)
+            logger.info("ANALYSIS REPORT APPROVED - WORKFLOW COMPLETED")
+            logger.info("=" * 80)
+
+            self.state.analysis_report_approved = True
+            self.state.is_successful = True
+            self.state.completed_at = datetime.now()
+            self._change_phase(WorkflowPhase.COMPLETED)
+            self._persist_state()
+
+            execution_time = (self.state.completed_at - self.state.started_at).total_seconds()
+
+            logger.info(f"✅ Workflow completed successfully in {execution_time:.2f} seconds")
+
+            return {
+                "status": "success",
+                "phase": self.state.phase.value,
+                "output_path": self.state.output_file_path,
+                "analysis_report_path": self.state.analysis_report_file_path,
+                "execution_time": execution_time,
+                "is_successful": True
+            }
+
+        except Exception as e:
+            logger.error(f"Error approving analysis report: {str(e)}", exc_info=True)
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+
+    async def refine_analysis_report(self, feedback: str) -> Dict[str, Any]:
+        """
+        Refine the analysis report based on user feedback.
+
+        Regenerates the analysis code to incorporate feedback and creates new report.
+
+        Args:
+            feedback: User's feedback on how to improve the report
+
+        Returns:
+            Dictionary with updated report content
+        """
+        if self.state.phase != WorkflowPhase.ANALYSIS_REPORT_REVIEW:
+            return {
+                "status": "error",
+                "error": "Can only refine report in ANALYSIS_REPORT_REVIEW phase"
+            }
+
+        try:
+            logger.info("=" * 80)
+            logger.info("REFINING ANALYSIS REPORT BASED ON FEEDBACK")
+            logger.info("=" * 80)
+            logger.info(f"User feedback: {feedback}")
+
+            self.state.analysis_refinement_iterations += 1
+            self.state.analysis_feedback_history.append({
+                "iteration": self.state.analysis_refinement_iterations,
+                "feedback": feedback,
+                "timestamp": datetime.now().isoformat()
+            })
+
+            # Create refinement prompt
+            refinement_prompt = f"""The user has provided feedback on the analysis report. Regenerate the code to address their feedback.
+
+**Original Analysis Instructions:**
+{self.state.analysis_instructions}
+
+**Current Analysis Plan:**
+{self.state.analysis_plan}
+
+**User Feedback:**
+{feedback}
+
+**Current Code:**
+{self.state.analysis_code}
+
+**Task:** Update the code to incorporate the user's feedback while maintaining the three-part structure and ensuring the output is saved to the correct .txt file path.
+
+Generate the complete, updated code now."""
+
+            # Reinitialize coder with refinement prompt
+            config = get_config()
+            if not self.coder:
+                self.coder = create_coder_agent(
+                    model=None,
+                    temperature=0.3,
+                    max_iterations=self.max_coder_iterations,
+                    execution_timeout=self.code_execution_timeout,
+                    provider=config.coder_provider
+                )
+
+            init_result = await self.coder.initialize_workflow(
+                workflow_name=f"{self.workflow_name} - Analysis Report (Refined)",
+                business_logic_plan=refinement_prompt,
+                csv_filepaths=[self.state.output_file_path],
+                output_filename=f"{sanitize_filename(self.workflow_name)}_analysis_report.txt"
+            )
+
+            # Generate and execute updated code
+            result = await self.coder.generate_and_execute_code()
+
+            if result['status'] == 'success':
+                logger.info("✅ REFINED ANALYSIS REPORT GENERATED")
+
+                self.state.analysis_code = result['code']
+
+                # Look for the updated .txt file
+                txt_file_pattern = f"storage/analysis_reports/{sanitize_filename(self.workflow_name)}_analysis_report.txt"
+                txt_file = Path(txt_file_pattern)
+
+                if txt_file.exists():
+                    self.state.analysis_report_file_path = str(txt_file)
+                    with open(txt_file, 'r') as f:
+                        self.state.analysis_report_content = f.read()
+
+                    logger.info(f"📄 Refined analysis report saved to: {txt_file}")
+
+                self._persist_state()
+
+                return {
+                    "status": "success",
+                    "phase": self.state.phase.value,
+                    "code": self.state.analysis_code,
+                    "report_file_path": self.state.analysis_report_file_path,
+                    "report_content": self.state.analysis_report_content,
+                    "refinement_iteration": self.state.analysis_refinement_iterations
+                }
+            else:
+                logger.error(f"❌ REFINED REPORT GENERATION FAILED: {result.get('error')}")
+                return {
+                    "status": "error",
+                    "error": result.get('error')
+                }
+
+        except Exception as e:
+            logger.error(f"Error refining analysis report: {str(e)}", exc_info=True)
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+
     async def approve_plan_and_generate_code(self) -> Dict[str, Any]:
         """
         Approve the business logic plan and proceed to code generation.
@@ -974,13 +1942,16 @@ Output the COMPLETE updated Business Logic Plan with:
             self.state.plan_approved = True
             self._change_phase(WorkflowPhase.CODING)
 
-            # Create Coder Agent
+            # Create Coder Agent (using phase-specific provider)
+            config = get_config()
             self.coder = create_coder_agent(
                 model=self.model,
                 temperature=0.3,
                 max_iterations=self.max_coder_iterations,
-                execution_timeout=self.code_execution_timeout
+                execution_timeout=self.code_execution_timeout,
+                provider=config.coder_provider
             )
+            logger.info(f"Coder Agent created with provider: {config.coder_provider}")
 
             logger.info("Initializing Coder Agent...")
 
@@ -1250,7 +2221,16 @@ Output the COMPLETE updated Business Logic Plan with:
             "error_message": self.state.error_message,
             "planner_summary": self.get_planner_summary(),
             "coder_summary": self.get_coder_summary(),
-            "output_review_summary": self.get_output_review_summary()
+            "output_review_summary": self.get_output_review_summary(),
+            # Analysis report fields
+            "analysis_instructions": self.state.analysis_instructions,
+            "analysis_instructions_approved": self.state.analysis_instructions_approved,
+            "analysis_plan": self.state.analysis_plan,
+            "analysis_code": self.state.analysis_code,
+            "analysis_report_file_path": self.state.analysis_report_file_path,
+            "analysis_report_content": self.state.analysis_report_content,
+            "analysis_report_approved": self.state.analysis_report_approved,
+            "analysis_refinement_iterations": self.state.analysis_refinement_iterations
         }
 
 
@@ -1263,7 +2243,7 @@ def create_orchestrator(
     workflow_description: str,
     csv_filepaths: List[str],
     output_filename: str = "result.csv",
-    model: str = "gpt-5",
+    model: Optional[str] = None,
     **kwargs
 ) -> IRAOrchestrator:
     """
@@ -1274,19 +2254,28 @@ def create_orchestrator(
         workflow_description: Description of workflow goals
         csv_filepaths: List of CSV file paths
         output_filename: Name for output file
-        model: OpenAI model to use
+        model: Model to use (or None to use provider default from config)
         **kwargs: Additional orchestrator configuration
 
     Returns:
         Configured IRAOrchestrator instance
 
     Example:
+        >>> # Use provider default model
+        >>> orchestrator = create_orchestrator(
+        ...     workflow_name="Sales Analysis",
+        ...     workflow_description="Analyze Q4 sales data",
+        ...     csv_filepaths=["data/sales.csv"]
+        ... )
+
+        >>> # Or specify a model explicitly
         >>> orchestrator = create_orchestrator(
         ...     workflow_name="Sales Analysis",
         ...     workflow_description="Analyze Q4 sales data",
         ...     csv_filepaths=["data/sales.csv"],
-        ...     model="gpt-5"
+        ...     model="gpt-4o"  # For OpenAI
         ... )
+
         >>> await orchestrator.start()
     """
     return IRAOrchestrator(

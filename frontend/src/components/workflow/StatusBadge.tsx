@@ -8,6 +8,9 @@ import {
   Loader2,
   Pause,
   PlayCircle,
+  FileText,
+  FileCheck,
+  Rocket,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -18,6 +21,9 @@ export type WorkflowStatus =
   | "plan_review"
   | "coding"
   | "output_review"
+  | "analysis_report_generation"
+  | "analysis_report_review"
+  | "live"
   | "completed"
   | "failed"
   | "paused";
@@ -59,6 +65,24 @@ const STATUS_CONFIG: Record<WorkflowStatus, StatusConfig> = {
     icon: PlayCircle,
     variant: "secondary",
     className: "text-amber-600 bg-amber-50 border-amber-200",
+  },
+  analysis_report_generation: {
+    label: "Generating Analysis",
+    icon: Loader2,
+    variant: "default",
+    className: "text-teal-600 bg-teal-50 border-teal-200",
+  },
+  analysis_report_review: {
+    label: "Review Analysis Report",
+    icon: FileCheck,
+    variant: "secondary",
+    className: "text-indigo-600 bg-indigo-50 border-indigo-200",
+  },
+  live: {
+    label: "Live",
+    icon: Rocket,
+    variant: "secondary",
+    className: "text-blue-600 bg-blue-50 border-blue-200",
   },
   completed: {
     label: "Completed",
@@ -119,7 +143,7 @@ export function StatusBadge({
             size === "sm" && "w-3 h-3",
             size === "md" && "w-3.5 h-3.5",
             size === "lg" && "w-4 h-4",
-            (status === "planning" || status === "coding") && "animate-spin"
+            (status === "planning" || status === "coding" || status === "analysis_report_generation") && "animate-spin"
           )}
         />
       )}
@@ -136,6 +160,9 @@ export function getStatusColor(status: WorkflowStatus): string {
     plan_review: "orange",
     coding: "purple",
     output_review: "amber",
+    analysis_report_generation: "teal",
+    analysis_report_review: "indigo",
+    live: "blue",
     completed: "green",
     failed: "red",
     paused: "gray",
