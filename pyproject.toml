@@ -1,25 +1,26 @@
 [project]
 name = "ira-workflow-builder"
-version = "0.1.0"
-description = "Interactive Requirements Analyzer - AI-powered workflow builder for CSV analysis"
+version = "4.0.0"
+description = "IRA Workflow Builder - AI-powered workflow automation for financial exception analysis"
 authors = [
-    {name = "IRA Team", email = "team@ira-workflow.com"}
+    {name = "Irame Labs Pvt. Ltd.", email = "legal@iramelabs.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.10"
-license = {text = "MIT"}
+requires-python = ">=3.9"
+license = {text = "Proprietary - Copyright © 2025 Irame Labs Pvt. Ltd. All Rights Reserved"}
 
 keywords = ["ai", "agent", "workflow", "csv", "analysis", "automation"]
 
 classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Office/Business :: Financial",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
@@ -63,10 +64,9 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/ira-workflow-builder"
-Documentation = "https://ira-workflow-builder.readthedocs.io"
-Repository = "https://github.com/yourusername/ira-workflow-builder"
-Issues = "https://github.com/yourusername/ira-workflow-builder/issues"
+Homepage = "https://www.iramelabs.com"
+Documentation = "https://www.iramelabs.com/docs/ira-workflow-builder"
+Support = "mailto:legal@iramelabs.com"
 
 [project.scripts]
 ira = "ira.cli:main"
@@ -113,7 +113,7 @@ exclude_lines = [
 ]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py39"
 line-length = 100
 select = [
     "E",  # pycodestyle errors
@@ -139,7 +139,7 @@ known-first-party = ["ira"]
 
 [tool.black]
 line-length = 100
-target-version = ["py310", "py311", "py312"]
+target-version = ["py39", "py310", "py311", "py312"]
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -156,7 +156,7 @@ extend-exclude = '''
 '''
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
