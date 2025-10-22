@@ -181,6 +181,56 @@ export async function approveOutput(workflowId: string): Promise<AnalysisInstruc
   );
 }
 
+// Analysis Report Management
+export async function approveAnalysisInstructions(
+  workflowId: string,
+  editedInstructions?: string | null
+): Promise<AnalysisReportResponse> {
+  return fetchAPI<AnalysisReportResponse>(
+    `/api/v1/workflows/${workflowId}/approve-analysis-instructions`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        instructions: editedInstructions,
+      }),
+    }
+  );
+}
+
+export async function refineAnalysisReport(
+  workflowId: string,
+  feedback: string
+): Promise<AnalysisReportResponse> {
+  return fetchAPI<AnalysisReportResponse>(
+    `/api/v1/workflows/${workflowId}/refine-analysis-report`,
+    {
+      method: "POST",
+      body: JSON.stringify({ feedback }),
+    }
+  );
+}
+
+export async function approveAnalysisReport(workflowId: string): Promise<WorkflowState> {
+  return fetchAPI<WorkflowState>(
+    `/api/v1/workflows/${workflowId}/approve-analysis-report`,
+    {
+      method: "POST",
+    }
+  );
+}
+
+export async function downloadAnalysisReport(workflowId: string): Promise<Blob> {
+  const url = `${API_BASE_URL}/api/v1/workflows/${workflowId}/download-analysis-report`;
+
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new APIError(response.status, "Failed to download analysis report");
+  }
+
+  return response.blob();
+}
+
 // Workflow Status and Data
 export async function getWorkflowStatus(
   workflowId: string
