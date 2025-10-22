@@ -66,7 +66,6 @@ all = [
 [project.urls]
 Homepage = "https://www.iramelabs.com"
 Documentation = "https://www.iramelabs.com/docs/ira-workflow-builder"
-Support = "mailto:legal@iramelabs.com"
 
 [project.scripts]
 ira = "ira.cli:main"
