@@ -13,6 +13,20 @@ import { FileUploader } from "@/components/workflow/FileUploader";
 import { PhaseIndicator } from "@/components/workflow/PhaseIndicator";
 import { createWorkflow, startWorkflow } from "@/lib/api/client";
 
+// Generate UUID v4 (browser-compatible)
+function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+
+  // Fallback for environments without crypto.randomUUID
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
 export default function NewWorkflowPage() {
   const router = useRouter();
 
@@ -73,7 +87,7 @@ export default function NewWorkflowPage() {
     try {
       // Step 1: Create workflow
       // Generate UUID for output filename
-      const uuid = crypto.randomUUID();
+      const uuid = generateUUID();
       const outputFilename = `output_${uuid}.csv`;
 
       const response = await createWorkflow({
