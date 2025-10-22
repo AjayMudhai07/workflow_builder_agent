@@ -103,7 +103,18 @@ export async function createWorkflow(
   });
 
   if (!response.ok) {
-    throw new APIError(response.status, "Failed to create workflow");
+    let errorDetails;
+    try {
+      errorDetails = await response.json();
+    } catch {
+      errorDetails = { message: response.statusText };
+    }
+
+    throw new APIError(
+      response.status,
+      errorDetails.detail || errorDetails.message || "Failed to create workflow",
+      errorDetails
+    );
   }
 
   return response.json();

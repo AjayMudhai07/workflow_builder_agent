@@ -47,7 +47,7 @@ router = APIRouter()
 @router.post("/workflows/create", response_model=WorkflowCreateResponse)
 async def create_workflow(
     name: str = Form(..., min_length=3, max_length=200),
-    description: str = Form(..., min_length=10, max_length=1000),
+    description: str = Form(..., min_length=10, max_length=5000),
     files: List[UploadFile] = File(..., description="CSV files to upload"),
     output_filename: str = Form(default="result.csv", max_length=200),
 ):

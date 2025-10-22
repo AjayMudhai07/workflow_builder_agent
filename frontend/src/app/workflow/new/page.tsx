@@ -60,8 +60,8 @@ export default function NewWorkflowPage() {
       errors.description = "Workflow description is required";
     } else if (workflowDescription.length < 10) {
       errors.description = "Please provide a more detailed description (at least 10 characters)";
-    } else if (workflowDescription.length > 1000) {
-      errors.description = "Description must be less than 1000 characters";
+    } else if (workflowDescription.length > 5000) {
+      errors.description = "Description must be less than 5000 characters";
     }
 
     if (csvFiles.length === 0) {
@@ -265,7 +265,7 @@ export default function NewWorkflowPage() {
                     }}
                     className={validationErrors.description ? "border-destructive" : ""}
                     rows={4}
-                    maxLength={1000}
+                    maxLength={5000}
                   />
                   <div className="flex items-center justify-between">
                     {validationErrors.description ? (
@@ -278,7 +278,7 @@ export default function NewWorkflowPage() {
                       </p>
                     )}
                     <span className="text-xs text-muted-foreground">
-                      {workflowDescription.length}/1000
+                      {workflowDescription.length}/5000
                     </span>
                   </div>
                 </div>
