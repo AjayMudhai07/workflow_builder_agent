@@ -175,7 +175,26 @@ setup_python_env() {
     log_info "Setting up Python virtual environment..."
 
     if [ -d "venv" ]; then
-        log_warning "Virtual environment already exists. Skipping creation..."
+        # Check if existing venv uses correct Python version
+        if [ -f "venv/bin/python" ]; then
+            VENV_PYTHON_VERSION=$(venv/bin/python --version 2>&1 | awk '{print $2}')
+            VENV_PYTHON_MINOR=$(echo $VENV_PYTHON_VERSION | cut -d. -f2)
+
+            if [ "$VENV_PYTHON_MINOR" -lt 10 ]; then
+                log_warning "Existing venv uses Python $VENV_PYTHON_VERSION (< 3.10)"
+                log_info "Removing old venv and recreating with Python 3.10+..."
+                rm -rf venv
+                $PYTHON_CMD -m venv venv
+                log_success "Virtual environment recreated with $PYTHON_CMD"
+            else
+                log_warning "Virtual environment already exists with Python $VENV_PYTHON_VERSION. Using existing venv..."
+            fi
+        else
+            log_warning "Virtual environment exists but seems corrupted. Recreating..."
+            rm -rf venv
+            $PYTHON_CMD -m venv venv
+            log_success "Virtual environment created"
+        fi
     else
         $PYTHON_CMD -m venv venv
         log_success "Virtual environment created"
