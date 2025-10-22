@@ -3,17 +3,25 @@ Workflow Manager Service
 
 This service manages workflow instances and provides an in-memory store
 for active orchestrators with persistence to disk.
+
+CONCURRENCY SAFETY:
+- Thread-safe singleton pattern with proper locking
+- Atomic file operations for state persistence
+- Per-workflow locks to prevent race conditions
+- Retry logic for handling temporary conflicts
 """
 
 import json
 import asyncio
 import uuid
+import threading
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 from datetime import datetime
 
 from ai.ira_builder.orchestrator import IRAOrchestrator, WorkflowPhase, WorkflowState
 from ai.ira_builder.utils.logger import get_logger
+from ai.ira_builder.utils.atomic_file import read_json_with_retry
 from ai.ira_builder.exceptions.errors import AgentException
 
 logger = get_logger(__name__)
@@ -43,10 +51,32 @@ class WorkflowManager:
         # In-memory store of active orchestrators
         self._orchestrators: Dict[str, IRAOrchestrator] = {}
 
-        # Lock for thread-safe operations
-        self._lock = asyncio.Lock()
+        # Global lock for manager-level operations (create, delete)
+        self._global_lock = asyncio.Lock()
+
+        # Per-workflow locks for concurrent access to same workflow
+        # Key: workflow_id, Value: asyncio.Lock
+        self._workflow_locks: Dict[str, asyncio.Lock] = {}
+        self._workflow_locks_lock = asyncio.Lock()  # Lock to protect _workflow_locks dict
 
         logger.info(f"WorkflowManager initialized (storage: {storage_dir})")
+
+    async def _get_workflow_lock(self, workflow_id: str) -> asyncio.Lock:
+        """
+        Get or create a lock for a specific workflow.
+
+        This ensures that operations on the same workflow are serialized.
+
+        Args:
+            workflow_id: Unique workflow identifier
+
+        Returns:
+            asyncio.Lock for the workflow
+        """
+        async with self._workflow_locks_lock:
+            if workflow_id not in self._workflow_locks:
+                self._workflow_locks[workflow_id] = asyncio.Lock()
+            return self._workflow_locks[workflow_id]
 
     def _generate_workflow_id(self, workflow_name: str) -> str:
         """
@@ -79,7 +109,7 @@ class WorkflowManager:
         Returns:
             Tuple of (workflow_id, orchestrator)
         """
-        async with self._lock:
+        async with self._global_lock:
             # Generate workflow ID
             workflow_id = self._generate_workflow_id(workflow_name)
 
@@ -121,6 +151,7 @@ class WorkflowManager:
         Get an orchestrator by workflow ID.
 
         If the orchestrator is not in memory, attempts to load it from disk.
+        Uses per-workflow locking to prevent race conditions.
 
         Args:
             workflow_id: Unique workflow identifier
@@ -128,12 +159,16 @@ class WorkflowManager:
         Returns:
             IRAOrchestrator instance or None if not found
         """
-        # Check in-memory store first
-        if workflow_id in self._orchestrators:
-            return self._orchestrators[workflow_id]
+        # Get workflow-specific lock
+        workflow_lock = await self._get_workflow_lock(workflow_id)
 
-        # Try to load from disk
-        async with self._lock:
+        # Acquire workflow lock to prevent concurrent loading
+        async with workflow_lock:
+            # Double-check if orchestrator is in memory (another thread might have loaded it)
+            if workflow_id in self._orchestrators:
+                return self._orchestrators[workflow_id]
+
+            # Try to load from disk
             state_file = self.storage_dir / f"{workflow_id}_state.json"
 
             if not state_file.exists():
@@ -216,8 +251,8 @@ class WorkflowManager:
 
         for state_file in state_files:
             try:
-                with open(state_file, 'r') as f:
-                    state_data = json.load(f)
+                # Use atomic read with retry for concurrent safety
+                state_data = read_json_with_retry(str(state_file), max_retries=2, retry_delay=0.05)
 
                 # Apply phase filter if specified
                 if phase and state_data.get("phase") != phase:
@@ -281,7 +316,7 @@ class WorkflowManager:
         Returns:
             True if deleted successfully, False otherwise
         """
-        async with self._lock:
+        async with self._global_lock:
             try:
                 # Remove from memory
                 if workflow_id in self._orchestrators:
@@ -306,20 +341,30 @@ class WorkflowManager:
                 return False
 
 
-# Global workflow manager instance
+# Global workflow manager instance and lock
 _workflow_manager: Optional[WorkflowManager] = None
+_manager_lock = threading.Lock()
 
 
 def get_workflow_manager() -> WorkflowManager:
     """
-    Get the global workflow manager instance.
+    Get the global workflow manager instance using thread-safe singleton pattern.
+
+    This uses double-checked locking to ensure only one instance is created
+    even with concurrent access from multiple threads.
 
     Returns:
         WorkflowManager instance
     """
     global _workflow_manager
 
+    # First check (no lock)
     if _workflow_manager is None:
-        _workflow_manager = WorkflowManager()
+        # Acquire lock for initialization
+        with _manager_lock:
+            # Second check (with lock)
+            if _workflow_manager is None:
+                _workflow_manager = WorkflowManager()
+                logger.info("Global WorkflowManager instance created")
 
     return _workflow_manager

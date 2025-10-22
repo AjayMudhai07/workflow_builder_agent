@@ -23,6 +23,7 @@ from ai.ira_builder.agents.coder import create_coder_agent, CoderAgent
 from ai.ira_builder.utils.logger import get_logger
 from ai.ira_builder.utils.config import get_config
 from ai.ira_builder.utils.file_analyzer import analyze_dataset
+from ai.ira_builder.utils.atomic_file import atomic_write_json, read_json_with_retry
 
 logger = get_logger(__name__)
 
@@ -184,16 +185,22 @@ class WorkflowState:
         }
 
     def save_to_file(self, filepath: str):
-        """Save state to JSON file."""
-        with open(filepath, 'w') as f:
-            json.dump(self.to_dict(), f, indent=2)
+        """
+        Save state to JSON file atomically.
+
+        Uses atomic write operation to prevent corruption from concurrent access.
+        """
+        atomic_write_json(filepath, self.to_dict(), indent=2)
         logger.info(f"Saved workflow state to {filepath}")
 
     @classmethod
     def load_from_file(cls, filepath: str) -> 'WorkflowState':
-        """Load state from JSON file."""
-        with open(filepath, 'r') as f:
-            data = json.load(f)
+        """
+        Load state from JSON file with retry logic.
+
+        Uses retry mechanism to handle temporary file corruption from concurrent access.
+        """
+        data = read_json_with_retry(filepath, max_retries=3, retry_delay=0.1)
 
         state = cls(
             workflow_name=data["workflow_name"],
