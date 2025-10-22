@@ -164,7 +164,31 @@ export default function ConversationPage() {
   // Copy question with options to clipboard
   const copyToClipboard = async (text: string, index?: number) => {
     try {
-      await navigator.clipboard.writeText(text);
+      // Try modern clipboard API first (requires HTTPS or localhost)
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for non-HTTPS contexts (like HTTP on EC2)
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        textArea.style.top = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+
+        try {
+          document.execCommand('copy');
+        } catch (err) {
+          console.error("Fallback copy failed:", err);
+          throw err;
+        } finally {
+          document.body.removeChild(textArea);
+        }
+      }
+
+      // Show success indicator
       if (index !== undefined) {
         setCopiedIndex(index);
         setTimeout(() => setCopiedIndex(null), 2000);
@@ -174,6 +198,8 @@ export default function ConversationPage() {
       }
     } catch (err) {
       console.error("Failed to copy:", err);
+      // Optionally show error to user
+      alert("Failed to copy to clipboard. Please copy manually.");
     }
   };
 
