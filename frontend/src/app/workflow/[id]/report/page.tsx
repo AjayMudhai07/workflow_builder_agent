@@ -8,7 +8,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PhaseIndicator } from "@/components/workflow/PhaseIndicator";
-import { getWorkflowStatus } from "@/lib/api/client";
+import {
+  getWorkflowStatus,
+  refineAnalysisReport,
+  approveAnalysisReport,
+  downloadAnalysisReport,
+} from "@/lib/api/client";
 import type { WorkflowState } from "@/lib/api/types";
 
 export default function AnalysisReportPage() {
@@ -79,18 +84,8 @@ export default function AnalysisReportPage() {
       setIsRefining(true);
       setError(null);
 
-      const response = await fetch(`http://localhost:8000/api/v1/workflows/${workflowId}/refine-analysis-report`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ feedback: refinementFeedback }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to refine analysis report");
-      }
-
-      const data = await response.json();
+      // Use the centralized API client
+      const data = await refineAnalysisReport(workflowId, refinementFeedback);
       setAnalysisReport(data.report_content);
       setShowRefinementForm(false);
       setRefinementFeedback("");
@@ -110,14 +105,8 @@ export default function AnalysisReportPage() {
       setIsApproving(true);
       setError(null);
 
-      const response = await fetch(`http://localhost:8000/api/v1/workflows/${workflowId}/approve-analysis-report`, {
-        method: "POST",
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to approve analysis report");
-      }
+      // Use the centralized API client
+      await approveAnalysisReport(workflowId);
 
       // Navigate to dashboard
       router.push("/dashboard");
@@ -130,13 +119,8 @@ export default function AnalysisReportPage() {
 
   const handleDownloadReport = async () => {
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/workflows/${workflowId}/download-analysis-report`);
-
-      if (!response.ok) {
-        throw new Error("Failed to download report");
-      }
-
-      const blob = await response.blob();
+      // Use the centralized API client
+      const blob = await downloadAnalysisReport(workflowId);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;

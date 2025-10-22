@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { PhaseIndicator } from "@/components/workflow/PhaseIndicator";
-import { getWorkflowStatus } from "@/lib/api/client";
+import { getWorkflowStatus, makeLive, type MakeLiveRequest } from "@/lib/api/client";
 import type { WorkflowState } from "@/lib/api/types";
 
 export default function LivePage() {
@@ -102,9 +102,9 @@ export default function LivePage() {
         .map((t) => t.trim())
         .filter((t) => t);
 
-      const requestBody: any = {
+      const requestBody: MakeLiveRequest = {
         business_process_id: businessProcessId.trim(),
-        mode: mode,
+        mode: mode as "schedule" | "api",
       };
 
       if (checkId.trim()) {
@@ -115,18 +115,8 @@ export default function LivePage() {
         requestBody.tags = tags;
       }
 
-      const response = await fetch(`http://localhost:8000/api/v1/workflows/${workflowId}/make-live`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to deploy workflow");
-      }
-
-      const result = await response.json();
+      // Use the centralized API client
+      const result = await makeLive(workflowId, requestBody);
       setDeploymentResult(result);
 
       // Reload workflow data to update phase

@@ -231,6 +231,37 @@ export async function downloadAnalysisReport(workflowId: string): Promise<Blob> 
   return response.blob();
 }
 
+// Make Live (Deploy to Production)
+export interface MakeLiveRequest {
+  business_process_id: string;
+  check_id?: string;
+  mode: "schedule" | "api";
+  tags?: string[];
+}
+
+export interface MakeLiveResponse {
+  status: "success" | "error";
+  message: string;
+  deployment_id?: string;
+  business_process_id?: string;
+  check_id?: string;
+  mode?: string;
+  tags?: string[];
+}
+
+export async function makeLive(
+  workflowId: string,
+  request: MakeLiveRequest
+): Promise<MakeLiveResponse> {
+  return fetchAPI<MakeLiveResponse>(
+    `/api/v1/workflows/${workflowId}/make-live`,
+    {
+      method: "POST",
+      body: JSON.stringify(request),
+    }
+  );
+}
+
 // Workflow Status and Data
 export async function getWorkflowStatus(
   workflowId: string
