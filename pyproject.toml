@@ -6,7 +6,7 @@ authors = [
     {name = "Irame Labs Pvt. Ltd.", email = "legal@iramelabs.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = {text = "Proprietary - Copyright © 2025 Irame Labs Pvt. Ltd. All Rights Reserved"}
 
 keywords = ["ai", "agent", "workflow", "csv", "analysis", "automation"]
@@ -16,7 +16,6 @@ classifiers = [
     "Intended Audience :: Financial and Insurance Industry",
     "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -112,7 +111,7 @@ exclude_lines = [
 ]
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 line-length = 100
 select = [
     "E",  # pycodestyle errors
@@ -138,7 +137,7 @@ known-first-party = ["ira"]
 
 [tool.black]
 line-length = 100
-target-version = ["py39", "py310", "py311", "py312"]
+target-version = ["py310", "py311", "py312"]
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -155,7 +154,7 @@ extend-exclude = '''
 '''
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false

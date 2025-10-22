@@ -65,24 +65,25 @@ detect_os() {
 check_python_version() {
     log_info "Checking Python version..."
 
-    if command_exists python3; then
-        PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
-        PYTHON_MAJOR=$(echo $PYTHON_VERSION | cut -d. -f1)
-        PYTHON_MINOR=$(echo $PYTHON_VERSION | cut -d. -f2)
+    # First check for Python 3.10+ (required by agent-framework)
+    for py_cmd in python3.12 python3.11 python3.10 python3; do
+        if command_exists $py_cmd; then
+            PYTHON_VERSION=$($py_cmd --version 2>&1 | awk '{print $2}')
+            PYTHON_MAJOR=$(echo $PYTHON_VERSION | cut -d. -f1)
+            PYTHON_MINOR=$(echo $PYTHON_VERSION | cut -d. -f2)
 
-        if [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -ge 9 ]; then
-            log_success "Python $PYTHON_VERSION found"
-            PYTHON_CMD="python3"
-            return 0
-        else
-            log_warning "Python $PYTHON_VERSION found, but 3.9+ is required"
-            log_error "Please install Python 3.9 or higher"
-            return 1
+            if [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -ge 10 ]; then
+                log_success "Python $PYTHON_VERSION found ($py_cmd)"
+                PYTHON_CMD="$py_cmd"
+                return 0
+            fi
         fi
-    else
-        log_error "Python 3 not found. Please install Python 3.11 or 3.12"
-        return 1
-    fi
+    done
+
+    # If we get here, Python 3.10+ was not found
+    log_warning "Python 3.10+ not found (required by agent-framework)"
+    log_info "Found: $(python3 --version 2>&1 || echo 'No python3')"
+    return 1
 }
 
 # Check Node.js version
@@ -139,13 +140,27 @@ install_system_dependencies() {
         # Detect Linux distro
         if command_exists apt-get; then
             # Debian/Ubuntu
+            log_info "Installing Python 3.10+ on Ubuntu/Debian..."
             sudo apt-get update
-            sudo apt-get install -y python3.11 python3.11-venv python3-pip nodejs npm build-essential
+
+            # Try to install Python 3.11 or 3.10
+            if sudo apt-cache show python3.11 >/dev/null 2>&1; then
+                sudo apt-get install -y python3.11 python3.11-venv python3.11-dev python3-pip build-essential
+            elif sudo apt-cache show python3.10 >/dev/null 2>&1; then
+                sudo apt-get install -y python3.10 python3.10-venv python3.10-dev python3-pip build-essential
+            else
+                log_error "Python 3.10 or 3.11 not available in apt repositories"
+                log_info "You may need to add deadsnakes PPA: sudo add-apt-repository ppa:deadsnakes/ppa"
+                exit 1
+            fi
+
         elif command_exists yum; then
             # RHEL/CentOS
-            sudo yum install -y python3.11 python3-pip nodejs npm gcc gcc-c++ make
+            log_info "Installing Python 3.10+ on RHEL/CentOS..."
+            sudo yum install -y python3.11 python3-pip gcc gcc-c++ make python3-devel || \
+            sudo yum install -y python3.10 python3-pip gcc gcc-c++ make python3-devel
         else
-            log_warning "Unknown Linux distribution. Please install Python 3.11 and Node.js 18 manually"
+            log_warning "Unknown Linux distribution. Please install Python 3.10+ and Node.js 18 manually"
         fi
 
         log_success "Linux dependencies installed"

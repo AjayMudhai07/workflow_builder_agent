@@ -2,7 +2,7 @@
 
 **Interactive Requirements Analyzer** - An AI-powered workflow builder for generating analysis code on CSV files using Microsoft Agent Framework.
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
@@ -348,8 +348,8 @@ See the [LICENSE](LICENSE) file for complete terms and restrictions.
 ## 📞 Contact
 
 **Irame Labs Pvt. Ltd.**
-- Email: legal@iramelabs.com
-- Website: www.iramelabs.com
+- Email: admin@irame.ai
+- Website: [www.iramelabs.com](https://www.irame.ai/)
 
 For licensing inquiries or support, please contact Irame Labs directly.
 
