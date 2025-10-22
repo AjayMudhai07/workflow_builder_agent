@@ -1,21 +1,81 @@
-MIT License
+# PROPRIETARY SOFTWARE LICENSE
 
-Copyright (c) 2025 IRA Workflow Builder Team
+## Copyright Notice
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Copyright © 2025 Irame Labs Pvt. Ltd. All Rights Reserved.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+## Ownership
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+This software and associated documentation files (the "Software") are the exclusive property of Irame Labs Pvt. Ltd. ("Irame Labs"). All intellectual property rights, including but not limited to copyrights, patents, trademarks, and trade secrets, are owned by Irame Labs Pvt. Ltd.
+
+## Restrictions
+
+This Software is **PRIVATE and PROPRIETARY**.
+
+**NO LICENSE IS GRANTED** to any third party to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software.
+
+Specifically, you may NOT:
+
+1. Use this Software without explicit written authorization from Irame Labs Pvt. Ltd.
+2. Copy, reproduce, or duplicate any part of this Software
+3. Modify, adapt, translate, or create derivative works based on this Software
+4. Reverse engineer, decompile, or disassemble this Software
+5. Distribute, sublicense, lease, rent, loan, or transfer this Software to any third party
+6. Remove or alter any proprietary notices, labels, or marks on the Software
+7. Use this Software for any commercial purpose without authorization
+8. Share access credentials, API keys, or any confidential information related to this Software
+
+## Authorized Use
+
+This Software may only be used by:
+- Employees of Irame Labs Pvt. Ltd. with explicit authorization
+- Authorized contractors under a valid Non-Disclosure Agreement (NDA)
+- Authorized clients under a valid Software License Agreement
+
+All use must be in accordance with the terms specified in your employment agreement, contractor agreement, or software license agreement with Irame Labs Pvt. Ltd.
+
+## Confidentiality
+
+This Software contains confidential and proprietary information of Irame Labs Pvt. Ltd. Any person with access to this Software agrees to:
+
+1. Maintain the confidentiality of the Software and all related materials
+2. Not disclose any information about the Software to unauthorized parties
+3. Use the Software solely for authorized purposes
+4. Report any unauthorized access or disclosure immediately to Irame Labs Pvt. Ltd.
+
+## No Warranty
+
+THIS SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+## Limitation of Liability
+
+IN NO EVENT SHALL IRAME LABS PVT. LTD. BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+## Enforcement
+
+Unauthorized use, reproduction, or distribution of this Software may result in:
+- Immediate termination of access
+- Civil litigation for damages
+- Criminal prosecution under applicable laws
+- Injunctive relief to prevent further violations
+
+## Governing Law
+
+This license shall be governed by and construed in accordance with the laws of India, without regard to its conflict of law provisions.
+
+## Contact Information
+
+For licensing inquiries or to report unauthorized use:
+
+**Irame Labs Pvt. Ltd.**
+Email: legal@iramelabs.com
+Website: www.iramelabs.com
+
+---
+
+**NOTICE**: This is a private asset of Irame Labs Pvt. Ltd. If you have received this Software without authorization, you must immediately delete all copies and notify Irame Labs Pvt. Ltd.
+
+---
+
+**Last Updated**: October 22, 2025
+**Version**: 1.0

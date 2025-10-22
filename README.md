@@ -2,8 +2,8 @@
 
 **Interactive Requirements Analyzer** - An AI-powered workflow builder for generating analysis code on CSV files using Microsoft Agent Framework.
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 ---
@@ -335,53 +335,30 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 ## 📝 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+**PROPRIETARY SOFTWARE** - This software is the exclusive property of **Irame Labs Pvt. Ltd.**
+
+Copyright © 2025 Irame Labs Pvt. Ltd. All Rights Reserved.
+
+This is private, proprietary software. No license is granted for use, modification, or distribution without explicit written authorization from Irame Labs Pvt. Ltd.
+
+See the [LICENSE](LICENSE) file for complete terms and restrictions.
 
 ---
 
-## 🙏 Acknowledgments
+## 📞 Contact
 
-- Built with [Microsoft Agent Framework](https://github.com/microsoft/agent-framework)
-- Powered by OpenAI GPT-4o
-- Uses FastAPI for the API layer
-- Data processing with pandas
+**Irame Labs Pvt. Ltd.**
+- Email: legal@iramelabs.com
+- Website: www.iramelabs.com
 
----
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/yourusername/ira-workflow-builder/issues)
-- **Documentation**: [Read the Docs](https://ira-workflow-builder.readthedocs.io)
-- **Email**: team@ira-workflow.com
+For licensing inquiries or support, please contact Irame Labs directly.
 
 ---
 
-## 🗺️ Roadmap
+## ⚠️ Notice
 
-### Phase 1 (Current)
-- [x] Core agent implementation
-- [x] Basic workflow orchestration
-- [x] HITL integration
-- [ ] REST API endpoints
-
-### Phase 2
-- [ ] Frontend UI (React)
-- [ ] User authentication
-- [ ] Workflow templates
-- [ ] Advanced error handling
-
-### Phase 3
-- [ ] Multi-user support
-- [ ] Workflow versioning
-- [ ] Analytics dashboard
-- [ ] Workflow marketplace
-
-### Phase 4
-- [ ] A/B testing for agents
-- [ ] Reinforcement learning from feedback
-- [ ] Enterprise features
-- [ ] Cloud deployment
+This is a **private asset** of Irame Labs Pvt. Ltd. Unauthorized access, use, reproduction, or distribution is strictly prohibited and may result in legal action.
 
 ---
 
-**Made with ❤️ by the IRA Team**
+**Developed by Irame Labs Pvt. Ltd.** | Copyright © 2025 | All Rights Reserved
