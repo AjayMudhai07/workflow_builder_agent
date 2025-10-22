@@ -112,6 +112,23 @@ export interface OutputRefinementResponse {
   error?: string;
 }
 
+export interface AnalysisInstructionsResponse {
+  status: "success" | "error";
+  phase: WorkflowPhase;
+  instructions: string;
+  error?: string;
+}
+
+export interface AnalysisReportResponse {
+  status: "success" | "error";
+  phase: WorkflowPhase;
+  analysis_plan: string;
+  analysis_code: string;
+  report_file_path: string;
+  report_content: string;
+  error?: string;
+}
+
 // WebSocket Event Types
 export type WebSocketEvent =
   | { type: "phase_changed"; phase: WorkflowPhase }

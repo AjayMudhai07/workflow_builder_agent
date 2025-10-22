@@ -8,6 +8,8 @@ import type {
   PlanResponse,
   CodeGenerationResponse,
   OutputRefinementResponse,
+  AnalysisInstructionsResponse,
+  AnalysisReportResponse,
   WorkflowListItem,
   DataPreview,
   FileUploadResponse,
@@ -170,8 +172,8 @@ export async function refineOutput(
   );
 }
 
-export async function approveOutput(workflowId: string): Promise<WorkflowState> {
-  return fetchAPI<WorkflowState>(
+export async function approveOutput(workflowId: string): Promise<AnalysisInstructionsResponse> {
+  return fetchAPI<AnalysisInstructionsResponse>(
     `/api/v1/workflows/${workflowId}/approve-output`,
     {
       method: "POST",
