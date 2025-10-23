@@ -688,8 +688,10 @@ class CoderAgent:
                         logger.info(f"✓ Output file validated: {output_validation['row_count']} rows")
 
                         # Get preview and summary
-                        preview = preview_dataframe(self.memory.output_path, rows=10)
-                        summary = get_dataframe_summary(self.memory.output_path)
+                        # Pass row_count to avoid re-counting (3x speedup for large files)
+                        row_count = output_validation['row_count']
+                        preview = preview_dataframe(self.memory.output_path, rows=10, total_row_count=row_count)
+                        summary = get_dataframe_summary(self.memory.output_path, total_row_count=row_count)
 
                         # Replace csv_files and output_path with absolute paths in final code
                         final_code = self._replace_paths_in_code(generated_code)

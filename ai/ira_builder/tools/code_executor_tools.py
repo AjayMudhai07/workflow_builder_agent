@@ -278,7 +278,7 @@ def validate_python_syntax(code: str) -> Dict[str, Any]:
         }
 
 
-def preview_dataframe(filepath: str, rows: int = 20) -> str:
+def preview_dataframe(filepath: str, rows: int = 20, total_row_count: int = None) -> str:
     """
     Generate markdown preview of CSV file or text file.
 
@@ -287,6 +287,7 @@ def preview_dataframe(filepath: str, rows: int = 20) -> str:
     Args:
         filepath: Path to CSV or text file to preview
         rows: Number of rows to include in preview (default: 20)
+        total_row_count: Optional pre-computed total row count (avoids re-counting for large files)
 
     Returns:
         Markdown formatted table string with row count header (for CSV)
@@ -339,9 +340,15 @@ def preview_dataframe(filepath: str, rows: int = 20) -> str:
         # Use nrows parameter to avoid loading entire CSV
         df = read_csv_with_encoding(filepath, nrows=rows)
 
-        # Get total row count efficiently (same method as validate_output_dataframe)
-        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-            total_rows = sum(1 for _ in f) - 1  # Subtract 1 for header
+        # Use pre-computed row count if provided (avoids slow re-counting for large files)
+        if total_row_count is not None:
+            total_rows = total_row_count
+            logger.debug(f"Using pre-computed row count: {total_rows}")
+        else:
+            # Get total row count efficiently (same method as validate_output_dataframe)
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                total_rows = sum(1 for _ in f) - 1  # Subtract 1 for header
+            logger.debug(f"Counted rows: {total_rows}")
 
         # Generate markdown table
         table = df.to_markdown(index=False)
@@ -616,12 +623,13 @@ def _get_error_suggestion(error_type: str, error_message: str, code: str) -> str
 
 
 # Helper function to get dataframe summary statistics
-def get_dataframe_summary(filepath: str) -> Dict[str, Any]:
+def get_dataframe_summary(filepath: str, total_row_count: int = None) -> Dict[str, Any]:
     """
     Get summary statistics for a dataframe or text file.
 
     Args:
         filepath: Path to CSV or text file
+        total_row_count: Optional pre-computed total row count (avoids re-counting for large files)
 
     Returns:
         Dictionary with summary statistics
@@ -666,9 +674,15 @@ def get_dataframe_summary(filepath: str) -> Dict[str, Any]:
         sample_size = 1000
         df_sample = read_csv_with_encoding(filepath, nrows=sample_size)
 
-        # Get accurate row count efficiently
-        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-            total_rows = sum(1 for _ in f) - 1
+        # Use pre-computed row count if provided (avoids slow re-counting for large files)
+        if total_row_count is not None:
+            total_rows = total_row_count
+            logger.debug(f"Using pre-computed row count: {total_rows}")
+        else:
+            # Get accurate row count efficiently
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                total_rows = sum(1 for _ in f) - 1
+            logger.debug(f"Counted rows: {total_rows}")
 
         # Basic info
         summary = {
