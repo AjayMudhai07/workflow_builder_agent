@@ -3,10 +3,11 @@ Dataset Analyzer - Pre-analyzes CSV files to generate comprehensive understandin
 """
 
 import asyncio
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Annotated
 from pathlib import Path
 from dataclasses import dataclass, field
 from pydantic import BaseModel, Field
+import pandas as pd
 
 from agent_framework import ChatAgent
 from agent_framework.openai import OpenAIChatClient
@@ -22,6 +23,192 @@ from ai.ira_builder.utils.logger import get_logger
 from ai.ira_builder.exceptions.errors import AgentException
 
 logger = get_logger(__name__)
+
+
+# =============================================================================
+# CATEGORICAL ANALYSIS TOOLS
+# =============================================================================
+
+class CategoricalAnalysisTools:
+    """
+    Tools for analyzing categorical column values.
+    These tools are provided to the LLM agent to intelligently gather
+    categorical column information based on workflow requirements.
+    """
+
+    def __init__(self, file_path: str):
+        """
+        Initialize tools with file path context.
+
+        Args:
+            file_path: Path to the CSV/Excel file being analyzed
+        """
+        self.file_path = file_path
+        # Track tool results for extraction
+        self.tool_results = {}
+        logger.debug(f"Initialized CategoricalAnalysisTools for {file_path}")
+
+    async def get_categorical_column_filters(
+        self,
+        column_name: Annotated[str, Field(
+            description="Name of the column to retrieve all unique values from. Only use for columns with less than 20 unique values."
+        )]
+    ) -> Dict[str, Any]:
+        """
+        Retrieves ALL unique values from a categorical column if it has <20 unique values.
+
+        Use this tool when:
+        - User mentions filtering on a column but doesn't specify exact values to match
+        - You need to see ALL possible values to understand the full range of options
+        - Column is truly categorical with low cardinality (<20 unique values)
+        - You want to help map user's natural language to actual column values
+
+        Example use cases:
+        - User says "filter by document type" → Use this to see all document types available
+        - User says "consider standard and credit only" → Use this on Document Type column
+        - User says "filter cancelled cases" → Use this on Status column to see all statuses
+
+        Returns:
+            Dict with 'unique_values' list or 'error' message if column has >20 values
+        """
+        try:
+            logger.info(f"Tool called: get_categorical_column_filters(column={column_name})")
+
+            # Read file with appropriate format and encoding
+            if self.file_path.endswith('.csv'):
+                try:
+                    df = await asyncio.to_thread(pd.read_csv, self.file_path, encoding='utf-8')
+                except UnicodeDecodeError:
+                    df = await asyncio.to_thread(pd.read_csv, self.file_path, encoding='ISO-8859-1')
+            elif self.file_path.endswith(('.xlsx', '.xlsb')):
+                df = await asyncio.to_thread(pd.read_excel, self.file_path)
+            else:
+                return {"error": "Unsupported file format. Only CSV and Excel files are supported."}
+
+            # Validate column exists
+            if column_name not in df.columns:
+                available_cols = ", ".join(df.columns.tolist()[:10])
+                return {"error": f"Column '{column_name}' not found. Available columns include: {available_cols}"}
+
+            # Get unique values
+            unique_values = df[column_name].dropna().unique().tolist()
+
+            # Check if column is categorical (object type) and has reasonable cardinality
+            if df[column_name].dtype == 'object':
+                if len(unique_values) < 20:
+                    logger.info(f"Retrieved {len(unique_values)} unique values for column '{column_name}'")
+                    result = {
+                        "column_name": column_name,
+                        "unique_values": unique_values,
+                        "count": len(unique_values)
+                    }
+                    # Track result for extraction
+                    self.tool_results[column_name] = {
+                        "values": unique_values,
+                        "method": "get_all_values",
+                        "count": len(unique_values)
+                    }
+                    return result
+                else:
+                    logger.warning(f"Column '{column_name}' has {len(unique_values)} unique values (>20 limit)")
+                    return {
+                        "error": f"Column '{column_name}' has {len(unique_values)} unique values, which exceeds the 20-value limit for this tool. Use get_matching_column_values() instead with a specific search keyword."
+                    }
+            else:
+                return {
+                    "error": f"Column '{column_name}' is not a categorical (text) column. It has dtype: {df[column_name].dtype}"
+                }
+
+        except Exception as e:
+            logger.error(f"Error in get_categorical_column_filters: {str(e)}")
+            return {"error": f"Tool execution failed: {str(e)}"}
+
+    async def get_matching_column_values(
+        self,
+        column_name: Annotated[str, Field(
+            description="Name of the column to search within"
+        )],
+        search_string: Annotated[str, Field(
+            description="Substring to search for in column values (case-insensitive). Examples: 'Income Tax', 'standard', 'cancelled', 'WIRE'"
+        )]
+    ) -> Dict[str, Any]:
+        """
+        Finds column values that contain a specific substring (case-insensitive matching).
+
+        Use this tool when:
+        - User mentions a specific keyword to include/exclude (e.g., "exclude vendor names containing 'Income Tax'")
+        - Column has too many unique values for get_categorical_column_filters (high cardinality)
+        - You need fuzzy/partial matching rather than exact matches
+        - User wants to filter based on pattern or substring
+
+        Example use cases:
+        - User says "exclude vendors containing Income Tax" → Use this with search_string="Income Tax"
+        - User says "only WIRE transfers" → Use this on Payment Method with search_string="WIRE"
+        - User says "filter standard document types" → Use this with search_string="standard"
+
+        Returns:
+            Dict with 'matching_values' list or 'error' message if no matches found
+        """
+        try:
+            logger.info(f"Tool called: get_matching_column_values(column={column_name}, search='{search_string}')")
+
+            # Read file with appropriate format and encoding
+            if self.file_path.endswith('.csv'):
+                try:
+                    df = await asyncio.to_thread(pd.read_csv, self.file_path, encoding='utf-8')
+                except UnicodeDecodeError:
+                    df = await asyncio.to_thread(pd.read_csv, self.file_path, encoding='ISO-8859-1')
+            elif self.file_path.endswith(('.xlsx', '.xlsb')):
+                df = await asyncio.to_thread(pd.read_excel, self.file_path)
+            else:
+                return {"error": "Unsupported file format. Only CSV and Excel files are supported."}
+
+            # Validate column exists
+            if column_name not in df.columns:
+                available_cols = ", ".join(df.columns.tolist()[:10])
+                return {"error": f"Column '{column_name}' not found. Available columns include: {available_cols}"}
+
+            # Find matches with case-insensitive search
+            search_lower = search_string.lower()
+            mask = df[column_name].astype(str).str.lower().str.contains(search_lower, na=False)
+            matching_values = df.loc[mask, column_name].dropna().unique().tolist()
+
+            if not matching_values:
+                logger.warning(f"No values containing '{search_string}' found in column '{column_name}'")
+                return {
+                    "error": f"No values containing '{search_string}' found in column '{column_name}'. Try a different search term or check if the column name is correct."
+                }
+
+            logger.info(f"Found {len(matching_values)} matching values for '{search_string}' in column '{column_name}'")
+            result = {
+                "column_name": column_name,
+                "search_string": search_string,
+                "matching_values": matching_values,
+                "count": len(matching_values)
+            }
+            # Track result for extraction (merge with existing if column already analyzed)
+            if column_name in self.tool_results:
+                # Merge values if same column searched with different keywords
+                existing_values = self.tool_results[column_name].get("values", [])
+                combined_values = list(set(existing_values + matching_values))
+                self.tool_results[column_name] = {
+                    "values": combined_values,
+                    "method": "keyword_search",
+                    "search_keywords": self.tool_results[column_name].get("search_keywords", []) + [search_string],
+                    "count": len(combined_values)
+                }
+            else:
+                self.tool_results[column_name] = {
+                    "values": matching_values,
+                    "method": "keyword_search",
+                    "search_keywords": [search_string],
+                    "count": len(matching_values)
+                }
+            return result
+
+        except Exception as e:
+            logger.error(f"Error in get_matching_column_values: {str(e)}")
+            return {"error": f"Tool execution failed: {str(e)}"}
 
 
 # =============================================================================
@@ -213,6 +400,9 @@ class FileIntelligence:
     inferred_business_domain: str = ""
     file_description: str = ""
 
+    # Categorical enrichment (LLM-powered tool-based analysis)
+    categorical_enrichment: Dict[str, Any] = field(default_factory=dict)
+
 
 @dataclass
 class DatasetIntelligence:
@@ -252,7 +442,7 @@ class DatasetAnalyzer:
     def __init__(self, chat_client: Optional[Any] = None, model: str = "gpt-4o"):
         """Initialize dataset analyzer"""
         logger.info("Initializing Dataset Analyzer")
-        
+
         # LLM for intelligent analysis
         if chat_client is None:
             from ai.ira_builder.utils.config import get_config
@@ -261,14 +451,21 @@ class DatasetAnalyzer:
             os.environ['OPENAI_API_KEY'] = config.openai_api_key
             from agent_framework.openai import OpenAIChatClient
             chat_client = OpenAIChatClient(model_id=model)
-        
+
+        # Store chat client for creating enrichment agent later
+        self.chat_client = chat_client
+        self.model = model
+
         self.agent = ChatAgent(
             name="Dataset-Analyzer",
             chat_client=chat_client,
             instructions=DATASET_ANALYZER_PROMPT,
             tools=[]
         )
-        
+
+        # Store workflow description during analysis
+        self.current_workflow_description = ""
+
         logger.info("Dataset Analyzer initialized")
     
     async def analyze_dataset(
@@ -278,16 +475,19 @@ class DatasetAnalyzer:
     ) -> DatasetIntelligence:
         """
         Analyze entire dataset and generate comprehensive understanding
-        
+
         Args:
             csv_filepaths: List of CSV file paths
             workflow_description: User's workflow description (provides context)
-            
+
         Returns:
             DatasetIntelligence with complete understanding
         """
         logger.info(f"Analyzing dataset with {len(csv_filepaths)} file(s)")
-        
+
+        # Store workflow description for use in enrichment
+        self.current_workflow_description = workflow_description
+
         # Step 1: Analyze each file individually
         file_intelligences = []
         for filepath in csv_filepaths:
@@ -369,7 +569,14 @@ class DatasetAnalyzer:
         # Use LLM's business domain inference
         business_domain = llm_analysis.get("business_domain", "general_business")
 
-        # Step 4: LLM-powered semantic quality analysis
+        # Step 4: NEW - LLM-powered categorical enrichment (tool-based)
+        categorical_enrichment = await self._enrich_categorical_columns(
+            metadata=metadata,
+            classified_columns=classified_columns,
+            file_path=filepath
+        )
+
+        # Step 5: LLM-powered semantic quality analysis
         quality_analysis = await self._llm_analyze_data_quality(
             metadata=metadata,
             classified_columns=classified_columns,
@@ -404,7 +611,9 @@ class DatasetAnalyzer:
             positive_quality_findings=quality_analysis.get("positive_findings", []),
             # Business context
             inferred_business_domain=business_domain,
-            file_description=f"{metadata['filename']} containing {metadata['row_count']:,} rows"
+            file_description=f"{metadata['filename']} containing {metadata['row_count']:,} rows",
+            # Categorical enrichment
+            categorical_enrichment=categorical_enrichment
         )
     
     async def _llm_analyze_data_quality(
@@ -542,6 +751,123 @@ Look for issues beyond simple statistics:
             "concerns": [],
             "positive_findings": []
         }
+
+    async def _enrich_categorical_columns(
+        self,
+        metadata: Dict[str, Any],
+        classified_columns: List[ColumnClassification],
+        file_path: str
+    ) -> Dict[str, Any]:
+        """
+        Use LLM with tools to enrich categorical columns based on workflow requirements.
+
+        This method creates a temporary agent with categorical analysis tools and lets
+        the LLM intelligently decide which columns to analyze and which tool to use.
+
+        Args:
+            metadata: Raw CSV metadata
+            classified_columns: Column classifications
+            file_path: Path to the CSV file
+
+        Returns:
+            Dictionary mapping column names to their enrichment data:
+            {
+                "column_name": {
+                    "values": [...],
+                    "method": "get_all_values" | "keyword_search",
+                    "search_keyword": "..." (if applicable),
+                    "reason": "why this column was analyzed"
+                }
+            }
+        """
+        # Skip enrichment if no workflow description provided
+        if not self.current_workflow_description:
+            logger.info("No workflow description provided, skipping categorical enrichment")
+            return {}
+
+        logger.info("Starting LLM-guided categorical column enrichment")
+
+        try:
+            # Create tools bound to this file
+            tools = CategoricalAnalysisTools(file_path)
+
+            # Create temporary agent with tools
+            enrichment_agent = ChatAgent(
+                name="Categorical-Enrichment-Agent",
+                chat_client=self.chat_client,
+                instructions=CATEGORICAL_ENRICHMENT_PROMPT,
+                tools=[tools.get_categorical_column_filters, tools.get_matching_column_values]
+            )
+
+            # Build categorical columns summary for LLM
+            categorical_cols_summary = []
+            for col in classified_columns:
+                if col.inferred_purpose == "category":
+                    samples_str = ", ".join([str(v)[:30] for v in col.sample_values[:3] if v])
+                    categorical_cols_summary.append(
+                        f"- **{col.column_name}**: {col.unique_count} unique values, "
+                        f"samples: [{samples_str}]"
+                    )
+
+            if not categorical_cols_summary:
+                logger.info("No categorical columns found, skipping enrichment")
+                return {}
+
+            categorical_cols_text = "\n".join(categorical_cols_summary)
+
+            # Build prompt for enrichment agent
+            prompt = f"""
+Analyze the workflow description and identify which categorical columns need value expansion.
+
+**WORKFLOW DESCRIPTION:**
+{self.current_workflow_description}
+
+**CATEGORICAL COLUMNS AVAILABLE:**
+{categorical_cols_text}
+
+**YOUR TASK:**
+1. Parse the workflow for filtering keywords and column references
+2. Match workflow mentions to actual categorical columns (handle fuzzy matching)
+3. For each relevant column, decide which tool to use based on the decision framework
+4. Call the appropriate tools to gather categorical information
+
+**Remember:**
+- Only analyze columns explicitly or strongly implied in the workflow
+- Use get_categorical_column_filters() for columns with <20 values when user doesn't mention specific keywords
+- Use get_matching_column_values() when user mentions specific patterns to match
+- Be selective - focus on quality over quantity
+- If a tool returns an error, try an alternative approach or skip that column
+
+Start by analyzing the workflow and identifying which columns are mentioned.
+Then call the appropriate tools one by one.
+"""
+
+            # Run the enrichment agent - it will call tools as needed
+            logger.info("Running enrichment agent with tools...")
+            response = await enrichment_agent.run(prompt)
+
+            # DEBUG: Log the response to understand structure
+            logger.debug(f"Enrichment agent response type: {type(response)}")
+            logger.debug(f"Enrichment agent response attributes: {[a for a in dir(response) if not a.startswith('_')]}")
+
+            # Extract enrichment results from tools (tracked during execution)
+            enrichment_results = tools.tool_results.copy()
+
+            if enrichment_results:
+                logger.info(f"Successfully enriched {len(enrichment_results)} categorical columns")
+                for col_name, data in enrichment_results.items():
+                    value_count = len(data.get("values", []))
+                    method = data.get("method", "unknown")
+                    logger.info(f"  - {col_name}: {value_count} values via {method}")
+            else:
+                logger.info("No categorical columns were enriched (none matched workflow requirements)")
+
+            return enrichment_results
+
+        except Exception as e:
+            logger.error(f"Error in categorical enrichment: {str(e)}", exc_info=True)
+            return {}
+
 
     async def _llm_analyze_file_structure(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -970,6 +1296,23 @@ Focus on:
                     for finding in file_intel.positive_quality_findings[:2]:  # Show top 2
                         parts.append(f"      ✓ {finding}")
 
+            # Add categorical enrichment information (NEW)
+            if file_intel.categorical_enrichment:
+                parts.append(f"\n   **Categorical Column Values** (Workflow-Specific):")
+                for col_name, enrichment_data in file_intel.categorical_enrichment.items():
+                    values = enrichment_data.get('values', [])
+                    method = enrichment_data.get('method', 'unknown')
+                    search_keyword = enrichment_data.get('search_keyword')
+
+                    if method == 'keyword_search' and search_keyword:
+                        parts.append(f"      • {col_name} (matching '{search_keyword}'): {', '.join(map(str, values[:10]))}")
+                        if len(values) > 10:
+                            parts.append(f"        ... and {len(values) - 10} more")
+                    else:
+                        parts.append(f"      • {col_name} (all values): {', '.join(map(str, values[:10]))}")
+                        if len(values) > 10:
+                            parts.append(f"        ... and {len(values) - 10} more")
+
         parts.append("")
         
         # Cross-file relationships
@@ -989,6 +1332,11 @@ Focus on:
         parts.append("=" * 80)
         parts.append("IMPORTANT: Use this dataset intelligence when asking questions.")
         parts.append("Reference actual column names instead of asking what columns exist.")
+        parts.append("")
+        parts.append("CATEGORICAL VALUES: The categorical column values shown above are the ACTUAL")
+        parts.append("values from the dataset. Use these exact values when filtering or generating code.")
+        parts.append("For example, if user says 'standard' but actual value is 'STANDARD' or 'Stndrd',")
+        parts.append("use the actual values shown above.")
         parts.append("=" * 80)
         
         return "\n".join(parts)
@@ -1049,6 +1397,91 @@ Your capabilities:
 
 Your analysis should be detailed, accurate, and based on actual data characteristics.
 Always output valid JSON with the requested structure.
+"""
+
+CATEGORICAL_ENRICHMENT_PROMPT = """
+You are a Categorical Column Analyzer. Your job is to identify which categorical columns
+need value expansion based on the user's workflow description.
+
+**Available Tools:**
+1. **get_categorical_column_filters(column_name)** - Retrieve ALL unique values from a column
+   - Use when: Column has <20 unique values and user mentions filtering on it
+   - Best for: Seeing all possible values to map user's natural language to actual values
+   - Example: User says "filter by document type" → Call this to see all document types
+
+2. **get_matching_column_values(column_name, search_string)** - Search for specific patterns
+   - Use when: User mentions specific keyword to include/exclude
+   - Best for: High-cardinality columns or targeted searches
+   - Example: User says "exclude Income Tax vendors" → Call this with search_string="Income Tax"
+
+**Decision Framework:**
+
+Step 1: Parse the workflow description for filter-related keywords:
+- Filtering: "consider only", "filter by", "exclude", "include", "where", "with", "containing"
+- Values: Look for specific values mentioned (e.g., "standard", "credit", "cancelled", "Income Tax")
+- Column references: Both explicit ("Document Type") and implicit ("document type", "type")
+
+Step 2: Match keywords to categorical columns available:
+- Look for columns mentioned in workflow (exact or fuzzy match)
+- Consider synonyms (e.g., "vendor" = "Vendor Name", "supplier")
+- Focus on categorical columns only
+
+Step 3: For each matched column, decide which tool to use:
+
+┌─────────────────────────────────────────────────────────────────────┐
+│ IF user mentions SPECIFIC KEYWORD/VALUE to filter:                  │
+│   Example: "exclude vendors containing Income Tax"                  │
+│   Example: "only standard and credit types"                         │
+│   → Use get_matching_column_values(column, keyword)                │
+│                                                                      │
+│ ELSE IF user mentions column for filtering but NO specific keyword: │
+│   Example: "filter by document type"                               │
+│   Example: "consider validation status"                            │
+│   → Use get_categorical_column_filters(column)                     │
+│                                                                      │
+│ ELSE IF column has >50 unique values AND no keyword mentioned:     │
+│   → SKIP (don't call tools, too many values)                       │
+└─────────────────────────────────────────────────────────────────────┘
+
+**Important Guidelines:**
+1. **Be selective** - Only analyze columns explicitly or strongly implied in workflow
+2. **Don't analyze every categorical column** - This wastes tokens
+3. **Use context clues** - "standard and credit only" on Document Type → search for "standard" and "credit"
+4. **Handle high-cardinality wisely** - For Vendor Name (1000s of values), only use keyword search
+5. **Call tools one at a time** - Analyze results before proceeding
+6. **If tool returns error** - Try alternative approach or skip that column
+
+**Examples:**
+
+Example 1: "Consider standard and credit document type only"
+- Column mentioned: Document Type (categorical)
+- Specific values: "standard", "credit"
+- Action: get_matching_column_values("Document Type", "standard")
+          get_matching_column_values("Document Type", "credit")
+- OR: get_categorical_column_filters("Document Type") if it has <20 values
+
+Example 2: "Exclude vendor name containing Income Tax"
+- Column mentioned: Vendor Name (high cardinality)
+- Specific keyword: "Income Tax"
+- Action: get_matching_column_values("Vendor Name", "Income Tax")
+
+Example 3: "Filter out cancelled and Null cases from Invoice Validation Status"
+- Column mentioned: Invoice Validation Status (categorical)
+- Specific value: "cancelled"
+- Action: get_categorical_column_filters("Invoice Validation Status")
+  (to see all statuses including null handling)
+
+Example 4: "Filter by region" (no specific region mentioned)
+- Column mentioned: Region (categorical)
+- No specific keyword
+- Action: get_categorical_column_filters("Region")
+
+**Your Task:**
+Analyze the workflow description and categorical columns provided. Use the tools strategically
+to gather only the relevant categorical information that will help downstream agents understand
+what filter values exist in the data.
+
+Be smart, be selective, and focus on quality over quantity.
 """
 
 
