@@ -424,12 +424,13 @@ def validate_output_dataframe(filepath: str) -> Dict[str, Any]:
     try:
         df = pd.read_csv(filepath)
 
-        # Check if dataframe is empty
+        # Check if dataframe is empty - this is VALID for filter/search operations
         if len(df) == 0:
-            logger.warning(f"Output dataframe is empty: {filepath}")
+            logger.info(f"Output dataframe is empty (0 rows) - this is valid for filter/search operations: {filepath}")
             return {
-                "valid": False,
-                "error": "Output file is empty (0 rows)",
+                "valid": True,  # Empty results are valid (e.g., no duplicates found, no matches, etc.)
+                "error": None,
+                "warning": "Output contains 0 rows - this may indicate no matches found (valid result)",
                 "row_count": 0,
                 "column_count": len(df.columns),
                 "columns": df.columns.tolist(),
@@ -447,10 +448,11 @@ def validate_output_dataframe(filepath: str) -> Dict[str, Any]:
         }
 
     except pd.errors.EmptyDataError:
-        logger.warning(f"Output file is empty: {filepath}")
+        logger.info(f"Output file is empty (no data/headers) - treating as valid empty result: {filepath}")
         return {
-            "valid": False,
-            "error": "Output file is empty",
+            "valid": True,  # Empty CSV is valid for filter/search operations
+            "error": None,
+            "warning": "Output file is completely empty (no headers/data) - this may indicate no matches found",
             "row_count": 0,
             "column_count": 0,
             "columns": [],

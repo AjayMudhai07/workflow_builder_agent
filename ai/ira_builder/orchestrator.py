@@ -1029,9 +1029,15 @@ Output the COMPLETE updated Business Logic Plan with:
 
             else:
                 logger.error(f"❌ CODE REGENERATION FAILED: {result.get('error')}")
+                logger.info("Resetting to PLAN_REVIEW phase - user can approve plan again to retry")
 
-                # Transition back to OUTPUT_REVIEW to allow user to try again
-                self._change_phase(WorkflowPhase.OUTPUT_REVIEW)
+                self.state.error_message = result.get('error', 'Code regeneration failed')
+                self.state.code_execution_iterations = result.get('iterations', 0)
+                self.state.generated_code = result.get('last_code')
+                self.state.code_execution_result = result
+
+                # Reset to PLAN_REVIEW instead of OUTPUT_REVIEW so user can retry
+                self._change_phase(WorkflowPhase.PLAN_REVIEW)
                 self._persist_state()
 
                 return {
@@ -1046,7 +1052,8 @@ Output the COMPLETE updated Business Logic Plan with:
 
         except Exception as e:
             logger.error(f"Error during code regeneration: {str(e)}", exc_info=True)
-            self._change_phase(WorkflowPhase.OUTPUT_REVIEW)
+            logger.info("Resetting to PLAN_REVIEW phase - user can approve plan again to retry")
+            self._change_phase(WorkflowPhase.PLAN_REVIEW)
             self._persist_state()
 
             return {
@@ -2011,12 +2018,15 @@ Generate the complete, updated code now."""
 
             else:
                 logger.error(f"❌ CODE GENERATION FAILED: {result.get('error')}")
+                logger.info("Resetting to PLAN_REVIEW phase - user can approve plan again to retry")
 
                 self.state.error_message = result.get('error', 'Code generation failed')
                 self.state.code_execution_iterations = result.get('iterations', 0)
                 self.state.generated_code = result.get('last_code')
                 self.state.code_execution_result = result
-                self._change_phase(WorkflowPhase.FAILED)
+
+                # Reset to PLAN_REVIEW instead of FAILED so user can retry
+                self._change_phase(WorkflowPhase.PLAN_REVIEW)
 
                 self.state.completed_at = datetime.now()
                 self._persist_state()
@@ -2032,8 +2042,9 @@ Generate the complete, updated code now."""
 
         except Exception as e:
             logger.error(f"Error during code generation: {str(e)}", exc_info=True)
+            logger.info("Resetting to PLAN_REVIEW phase - user can approve plan again to retry")
             self.state.error_message = str(e)
-            self._change_phase(WorkflowPhase.FAILED)
+            self._change_phase(WorkflowPhase.PLAN_REVIEW)
             self._persist_state()
 
             return {
