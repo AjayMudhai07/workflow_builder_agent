@@ -342,20 +342,31 @@ def preview_dataframe(filepath: str, rows: int = 20, total_row_count: int = None
 
         # Use pre-computed row count if provided (avoids slow re-counting for large files)
         if total_row_count is not None:
-            total_rows = total_row_count
-            logger.debug(f"Using pre-computed row count: {total_rows}")
+            # Handle string row_count (from timeout fallback)
+            if isinstance(total_row_count, str):
+                total_rows_display = total_row_count
+                logger.debug(f"Using fallback row count: {total_rows_display}")
+            else:
+                total_rows = total_row_count
+                total_rows_display = f"{total_rows:,}"
+                logger.debug(f"Using pre-computed row count: {total_rows}")
         else:
             # Get total row count efficiently (same method as validate_output_dataframe)
-            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                total_rows = sum(1 for _ in f) - 1  # Subtract 1 for header
-            logger.debug(f"Counted rows: {total_rows}")
+            row_count = _count_csv_rows_with_timeout(filepath, timeout_seconds=10)
+            if row_count == -1:
+                total_rows_display = "Not Calculated (Data too large)"
+                logger.debug("Row counting timed out")
+            else:
+                total_rows = row_count
+                total_rows_display = f"{total_rows:,}"
+                logger.debug(f"Counted rows: {total_rows}")
 
         # Generate markdown table
         table = df.to_markdown(index=False)
 
-        header = f"**Preview ({total_rows:,} total rows, showing first {min(rows, total_rows)}):**\n\n"
+        header = f"**Preview ({total_rows_display} total rows, showing first {min(rows, len(df))}):**\n\n"
 
-        logger.debug(f"Preview generated: showing {len(df)} of {total_rows} total rows")
+        logger.debug(f"Preview generated: showing {len(df)} rows")
         return header + table
 
     except FileNotFoundError:
@@ -372,7 +383,44 @@ def preview_dataframe(filepath: str, rows: int = 20, total_row_count: int = None
         return error_msg
 
 
-def validate_output_dataframe(filepath: str) -> Dict[str, Any]:
+def _count_csv_rows_with_timeout(filepath: str, timeout_seconds: int = 10) -> int:
+    """
+    Count CSV rows with timeout. Returns -1 if timeout occurs.
+
+    Args:
+        filepath: Path to CSV file
+        timeout_seconds: Maximum time to spend counting (default: 10)
+
+    Returns:
+        Row count or -1 if timeout/error
+    """
+    import signal
+
+    def timeout_handler(signum, frame):
+        raise TimeoutError("Row counting timed out")
+
+    try:
+        # Set timeout alarm (Unix only, but that's okay for server)
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(timeout_seconds)
+
+        try:
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                row_count = sum(1 for _ in f) - 1  # Subtract 1 for header
+            signal.alarm(0)  # Cancel alarm
+            return row_count
+        except TimeoutError:
+            logger.warning(f"Row counting timed out after {timeout_seconds}s for {filepath}")
+            return -1
+        finally:
+            signal.alarm(0)  # Ensure alarm is cancelled
+
+    except Exception as e:
+        logger.error(f"Error counting rows: {str(e)}")
+        return -1
+
+
+def validate_output_dataframe(filepath: str, timeout_seconds: int = 10) -> Dict[str, Any]:
     """
     Validate that output CSV was created and is valid.
 
@@ -380,12 +428,13 @@ def validate_output_dataframe(filepath: str) -> Dict[str, Any]:
 
     Args:
         filepath: Path to expected output CSV file
+        timeout_seconds: Maximum time to spend counting rows (default: 10s)
 
     Returns:
         Dictionary with:
             - valid: Boolean indicating if file exists and is valid
             - error: Error message if invalid (None if valid)
-            - row_count: Number of rows in dataframe
+            - row_count: Number of rows in dataframe (or "Not Calculated" if too large)
             - column_count: Number of columns in dataframe
             - columns: List of column names
             - file_size_mb: File size in megabytes
@@ -447,11 +496,23 @@ def validate_output_dataframe(filepath: str) -> Dict[str, Any]:
         columns = df_sample.columns.tolist()
         column_count = len(columns)
 
-        # For row count, use efficient file reading instead of loading entire CSV
-        # This is much faster for large files (124k+ rows)
-        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-            # Count lines (subtract 1 for header)
-            row_count = sum(1 for _ in f) - 1
+        # For row count, use timeout-protected counting (max 10 seconds)
+        # For very large files, we'll skip counting and just validate file exists
+        row_count = _count_csv_rows_with_timeout(filepath, timeout_seconds=timeout_seconds)
+
+        # If row counting timed out (file too large), use fallback
+        if row_count == -1:
+            logger.warning(f"Row counting timed out for large file ({file_size_mb} MB). Using fallback.")
+            return {
+                "valid": True,  # File exists and has columns, so it's valid
+                "error": None,
+                "warning": f"File too large to count rows ({file_size_mb} MB). Row count not calculated.",
+                "row_count": "Not Calculated (Data too large)",  # Fallback value for frontend
+                "column_count": column_count,
+                "columns": columns,
+                "file_size_mb": file_size_mb,
+                "timeout": True  # Indicate timeout occurred
+            }
 
         # Check if dataframe is empty - this is VALID for filter/search operations
         if row_count == 0:
@@ -676,23 +737,36 @@ def get_dataframe_summary(filepath: str, total_row_count: int = None) -> Dict[st
 
         # Use pre-computed row count if provided (avoids slow re-counting for large files)
         if total_row_count is not None:
-            total_rows = total_row_count
-            logger.debug(f"Using pre-computed row count: {total_rows}")
+            # Handle string row_count (from timeout fallback)
+            if isinstance(total_row_count, str):
+                total_rows = total_row_count  # Keep as string for display
+                sampled = True  # Assume large file if row count is string
+                logger.debug(f"Using fallback row count: {total_rows}")
+            else:
+                total_rows = total_row_count
+                sampled = total_rows > sample_size
+                logger.debug(f"Using pre-computed row count: {total_rows}")
         else:
-            # Get accurate row count efficiently
-            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                total_rows = sum(1 for _ in f) - 1
-            logger.debug(f"Counted rows: {total_rows}")
+            # Get accurate row count efficiently with timeout
+            row_count = _count_csv_rows_with_timeout(filepath, timeout_seconds=10)
+            if row_count == -1:
+                total_rows = "Not Calculated (Data too large)"
+                sampled = True
+                logger.debug("Row counting timed out")
+            else:
+                total_rows = row_count
+                sampled = total_rows > sample_size
+                logger.debug(f"Counted rows: {total_rows}")
 
         # Basic info
         summary = {
             "file_type": "csv",
-            "row_count": total_rows,
+            "row_count": total_rows,  # May be int or string
             "column_count": len(df_sample.columns),
             "columns": df_sample.columns.tolist(),
             "dtypes": {col: str(dtype) for col, dtype in df_sample.dtypes.items()},
-            "sampled": total_rows > sample_size,
-            "sample_size": min(sample_size, total_rows)
+            "sampled": sampled,
+            "sample_size": min(sample_size, len(df_sample)) if isinstance(total_rows, str) else min(sample_size, total_rows)
         }
 
         # Missing values (from sample)

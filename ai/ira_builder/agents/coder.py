@@ -685,11 +685,16 @@ class CoderAgent:
                     output_validation = validate_output_dataframe(self.memory.output_path)
 
                     if output_validation['valid']:
-                        logger.info(f"✓ Output file validated: {output_validation['row_count']} rows")
+                        # Handle row_count which may be int or string (for timeout fallback)
+                        row_count = output_validation['row_count']
+                        if isinstance(row_count, str):
+                            logger.info(f"✓ Output file validated: {row_count}")
+                        else:
+                            logger.info(f"✓ Output file validated: {row_count} rows")
 
                         # Get preview and summary
                         # Pass row_count to avoid re-counting (3x speedup for large files)
-                        row_count = output_validation['row_count']
+                        # row_count may be "Not Calculated (Data too large)" for very large files
                         preview = preview_dataframe(self.memory.output_path, rows=10, total_row_count=row_count)
                         summary = get_dataframe_summary(self.memory.output_path, total_row_count=row_count)
 
