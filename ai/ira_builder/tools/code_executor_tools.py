@@ -332,7 +332,9 @@ def preview_dataframe(filepath: str, rows: int = 20) -> str:
 
     # Handle CSV files
     try:
-        df = pd.read_csv(filepath)
+        # Import the helper function
+        from ai.ira_builder.tools.csv_tools import read_csv_with_encoding
+        df = read_csv_with_encoding(filepath)
         total_rows = len(df)
 
         # Generate markdown table
@@ -422,7 +424,8 @@ def validate_output_dataframe(filepath: str) -> Dict[str, Any]:
 
     # Try to read and validate the CSV
     try:
-        df = pd.read_csv(filepath)
+        from ai.ira_builder.tools.csv_tools import read_csv_with_encoding
+        df = read_csv_with_encoding(filepath)
 
         # Check if dataframe is empty - this is VALID for filter/search operations
         if len(df) == 0:
@@ -637,7 +640,8 @@ def get_dataframe_summary(filepath: str) -> Dict[str, Any]:
 
     # Handle CSV files
     try:
-        df = pd.read_csv(filepath)
+        from ai.ira_builder.tools.csv_tools import read_csv_with_encoding
+        df = read_csv_with_encoding(filepath)
 
         # Basic info
         summary = {

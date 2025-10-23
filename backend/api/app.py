@@ -50,8 +50,11 @@ async def lifespan(app: FastAPI):
     else:
         logger.info(f"     Model: {config.groq_model}")
 
+    logger.info(f"  🎯 Intent Agent: {config.intent_agent_provider.upper()}")
+    logger.info(f"     Model: {config.intent_agent_model}")
+
     # Show hybrid mode status
-    if config.planner_provider != config.coder_provider:
+    if config.planner_provider != config.coder_provider or config.intent_agent_provider != config.planner_provider:
         logger.info("  🔄 Hybrid Mode: ENABLED")
 
     logger.info(f"CORS Origins: {config.cors_origins}")

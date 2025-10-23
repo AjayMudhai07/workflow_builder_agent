@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { FileUploader } from "@/components/workflow/FileUploader";
 import { PhaseIndicator } from "@/components/workflow/PhaseIndicator";
-import { createWorkflow, startWorkflow } from "@/lib/api/client";
+import { createWorkflow, startWorkflowWithRAA } from "@/lib/api/client";
 
 // Generate UUID v4 (browser-compatible)
 function generateUUID(): string {
@@ -103,8 +103,8 @@ export default function NewWorkflowPage() {
 
       const workflowId = response.workflow_id;
 
-      // Step 2: Start workflow (initialize planner)
-      await startWorkflow(workflowId);
+      // Step 2: Start workflow with RAA (new flow)
+      await startWorkflowWithRAA(workflowId);
 
       // Step 3: Navigate to conversation page
       router.push(`/workflow/${workflowId}/conversation`);

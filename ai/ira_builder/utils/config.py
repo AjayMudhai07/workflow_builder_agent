@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     # Phase-specific LLM Providers (allows different models for different phases)
     planner_provider: str = Field(default="openai", alias="PLANNER_PROVIDER")  # Provider for planning phase
     coder_provider: str = Field(default="groq", alias="CODER_PROVIDER")  # Provider for coding phase
+    intent_agent_provider: str = Field(default="groq", alias="INTENT_AGENT_PROVIDER")  # Provider for Intent Agent
+    intent_agent_model: str = Field(default="openai/gpt-oss-120b", alias="INTENT_AGENT_MODEL")  # Model for Intent Agent
 
     # OpenAI
     openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")

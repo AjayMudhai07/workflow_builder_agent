@@ -337,10 +337,12 @@ async def analyze_csv_file(file_path: str, max_rows_for_sample: int = 5) -> Dict
             - file_description: Overall file description
     """
     try:
-        # Read CSV file
-        df = pd.read_csv(file_path)
-        file_name = Path(file_path).name
+        # Import the helper function
+        from ai.ira_builder.tools.csv_tools import read_csv_with_encoding
 
+        # Read CSV file with automatic encoding detection
+        df = read_csv_with_encoding(file_path)
+        file_name = Path(file_path).name
         logger.info(f"Analyzing file: {file_name} ({len(df)} rows, {len(df.columns)} columns)")
 
         # Get column info

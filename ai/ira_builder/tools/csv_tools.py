@@ -18,6 +18,49 @@ from ai.ira_builder.exceptions.errors import ValidationException, StorageExcepti
 logger = get_logger(__name__)
 
 
+def read_csv_with_encoding(filepath: str, **kwargs) -> pd.DataFrame:
+    """
+    Read CSV file with automatic encoding detection.
+
+    Tries multiple encodings in order:
+    1. utf-8 (most common)
+    2. latin-1 (ISO-8859-1, Western European)
+    3. iso-8859-1 (alias for latin-1)
+    4. cp1252 (Windows Western European)
+    5. utf-16 (Unicode 16-bit)
+
+    Args:
+        filepath: Path to CSV file
+        **kwargs: Additional arguments to pass to pd.read_csv()
+
+    Returns:
+        pandas DataFrame
+
+    Raises:
+        ValidationException: If file cannot be read with any encoding
+    """
+    encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'utf-16']
+
+    for encoding in encodings:
+        try:
+            df = pd.read_csv(filepath, encoding=encoding, **kwargs)
+            logger.debug(f"Successfully read CSV with encoding: {encoding}")
+            return df
+        except UnicodeDecodeError:
+            continue
+        except Exception as e:
+            # If it's not an encoding error, raise it
+            if 'codec' not in str(e).lower() and 'decode' not in str(e).lower():
+                raise
+            continue
+
+    raise ValidationException(
+        f"Unable to read CSV file with any supported encoding. "
+        f"Tried: {', '.join(encodings)}. "
+        f"File: {filepath}"
+    )
+
+
 def analyze_csv_structure(filepath: str) -> Dict[str, Any]:
     """
     Analyze CSV file structure and return comprehensive metadata.
@@ -65,8 +108,8 @@ def analyze_csv_structure(filepath: str) -> Dict[str, Any]:
         raise ValidationException(f"File is not a CSV: {filepath}")
 
     try:
-        # Read CSV file
-        df = pd.read_csv(filepath)
+        # Read CSV file with automatic encoding detection
+        df = read_csv_with_encoding(filepath)
         logger.debug(f"Successfully read CSV with {len(df)} rows and {len(df.columns)} columns")
 
         # Basic metadata
@@ -331,7 +374,7 @@ def get_column_data_preview(
     """
     logger.debug(f"Getting column preview: {column_name} from {filepath}")
 
-    df = pd.read_csv(filepath)
+    df = read_csv_with_encoding(filepath)
 
     if column_name not in df.columns:
         raise ValidationException(
@@ -396,7 +439,7 @@ def compare_csv_schemas(filepaths: List[str]) -> Dict[str, Any]:
     # Get columns from each file
     file_columns = {}
     for filepath in filepaths:
-        df = pd.read_csv(filepath, nrows=0)  # Read only headers
+        df = read_csv_with_encoding(filepath, nrows=0)  # Read only headers
         filename = Path(filepath).name
         file_columns[filename] = set(df.columns.tolist())
 
@@ -448,7 +491,7 @@ def detect_data_quality_issues(filepath: str) -> Dict[str, Any]:
     """
     logger.info(f"Detecting data quality issues in: {filepath}")
 
-    df = pd.read_csv(filepath)
+    df = read_csv_with_encoding(filepath)
     issues = []
 
     # Check for duplicate rows
