@@ -334,16 +334,21 @@ def preview_dataframe(filepath: str, rows: int = 20) -> str:
     try:
         # Import the helper function
         from ai.ira_builder.tools.csv_tools import read_csv_with_encoding
-        df = read_csv_with_encoding(filepath)
-        total_rows = len(df)
+
+        # Only read the rows we need for preview (much faster for large files)
+        # Use nrows parameter to avoid loading entire CSV
+        df = read_csv_with_encoding(filepath, nrows=rows)
+
+        # Get total row count efficiently (same method as validate_output_dataframe)
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            total_rows = sum(1 for _ in f) - 1  # Subtract 1 for header
 
         # Generate markdown table
-        preview_df = df.head(rows)
-        table = preview_df.to_markdown(index=False)
+        table = df.to_markdown(index=False)
 
         header = f"**Preview ({total_rows:,} total rows, showing first {min(rows, total_rows)}):**\n\n"
 
-        logger.debug(f"Preview generated: {total_rows} total rows")
+        logger.debug(f"Preview generated: showing {len(df)} of {total_rows} total rows")
         return header + table
 
     except FileNotFoundError:
@@ -655,29 +660,39 @@ def get_dataframe_summary(filepath: str) -> Dict[str, Any]:
     # Handle CSV files
     try:
         from ai.ira_builder.tools.csv_tools import read_csv_with_encoding
-        df = read_csv_with_encoding(filepath)
+
+        # For summary statistics, sample the data instead of loading everything
+        # Use first 1000 rows for statistics (representative for large files)
+        sample_size = 1000
+        df_sample = read_csv_with_encoding(filepath, nrows=sample_size)
+
+        # Get accurate row count efficiently
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            total_rows = sum(1 for _ in f) - 1
 
         # Basic info
         summary = {
             "file_type": "csv",
-            "row_count": len(df),
-            "column_count": len(df.columns),
-            "columns": df.columns.tolist(),
-            "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
+            "row_count": total_rows,
+            "column_count": len(df_sample.columns),
+            "columns": df_sample.columns.tolist(),
+            "dtypes": {col: str(dtype) for col, dtype in df_sample.dtypes.items()},
+            "sampled": total_rows > sample_size,
+            "sample_size": min(sample_size, total_rows)
         }
 
-        # Missing values
-        missing = df.isnull().sum()
+        # Missing values (from sample)
+        missing = df_sample.isnull().sum()
         summary["missing_values"] = {
             col: int(count) for col, count in missing.items() if count > 0
         }
 
-        # Numerical statistics
-        numerical_cols = df.select_dtypes(include=['number']).columns
+        # Numerical statistics (from sample)
+        numerical_cols = df_sample.select_dtypes(include=['number']).columns
         if len(numerical_cols) > 0:
-            summary["numerical_summary"] = df[numerical_cols].describe().to_dict()
+            summary["numerical_summary"] = df_sample[numerical_cols].describe().to_dict()
 
-        logger.debug(f"Summary generated for {len(df)} rows")
+        logger.debug(f"Summary generated for {total_rows} rows (sampled {min(sample_size, total_rows)} rows)")
         return summary
 
     except Exception as e:
