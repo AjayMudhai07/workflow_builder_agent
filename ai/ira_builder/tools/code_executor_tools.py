@@ -382,6 +382,8 @@ def _count_csv_rows_with_timeout(filepath: str, timeout_seconds: int = 10) -> in
     """
     Count CSV rows with timeout. Returns -1 if timeout occurs.
 
+    Uses threading instead of signals for better compatibility with async/server environments.
+
     Args:
         filepath: Path to CSV file
         timeout_seconds: Maximum time to spend counting (default: 10)
@@ -389,29 +391,40 @@ def _count_csv_rows_with_timeout(filepath: str, timeout_seconds: int = 10) -> in
     Returns:
         Row count or -1 if timeout/error
     """
-    import signal
+    import threading
 
-    def timeout_handler(signum, frame):
-        raise TimeoutError("Row counting timed out")
+    result = {'count': -1, 'done': False}
 
-    try:
-        # Set timeout alarm (Unix only, but that's okay for server)
-        signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(timeout_seconds)
-
+    def count_rows():
         try:
             with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                row_count = sum(1 for _ in f) - 1  # Subtract 1 for header
-            signal.alarm(0)  # Cancel alarm
-            return row_count
-        except TimeoutError:
+                count = sum(1 for _ in f) - 1  # Subtract 1 for header
+            if not result['done']:
+                result['count'] = count
+        except Exception as e:
+            logger.error(f"Error counting rows in thread: {str(e)}")
+            result['count'] = -1
+
+    try:
+        # Start counting in a separate thread
+        thread = threading.Thread(target=count_rows, daemon=True)
+        thread.start()
+
+        # Wait for thread with timeout
+        thread.join(timeout=timeout_seconds)
+
+        # Mark as done to prevent race condition
+        result['done'] = True
+
+        if thread.is_alive():
+            # Thread is still running - timeout occurred
             logger.warning(f"Row counting timed out after {timeout_seconds}s for {filepath}")
             return -1
-        finally:
-            signal.alarm(0)  # Ensure alarm is cancelled
+
+        return result['count']
 
     except Exception as e:
-        logger.error(f"Error counting rows: {str(e)}")
+        logger.error(f"Error in timeout wrapper: {str(e)}")
         return -1
 
 
