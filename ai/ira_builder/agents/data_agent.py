@@ -502,12 +502,25 @@ class DataAgent:
         # Build column context for better options
         available_columns = []
         file_summaries = []
+        categorical_values_context = []
+
         for filename, file_info in csv_files_info.items():
             # Build summary of this file
             if isinstance(file_info, dict):
                 rows = file_info.get('rows', 'unknown')
                 cols_count = file_info.get('columns', 'unknown')
                 file_summaries.append(f"{filename} ({rows} rows, {cols_count} columns)")
+
+                # Extract categorical enrichment data (IMPORTANT for accurate options)
+                categorical_enrichment = file_info.get('categorical_enrichment', {})
+                if categorical_enrichment:
+                    for col_name, enrichment_data in categorical_enrichment.items():
+                        values = enrichment_data.get('values', [])
+                        if values:
+                            values_str = ', '.join(map(str, values[:10]))
+                            if len(values) > 10:
+                                values_str += f" (and {len(values) - 10} more)"
+                            categorical_values_context.append(f"{col_name}: {values_str}")
 
                 # Extract columns if they're in a specific key
                 for key, value in file_info.items():
@@ -533,15 +546,23 @@ Draft a clear, user-friendly data question based on RAA's analysis.
 **Mentioned Columns:**
 {', '.join(mentioned_columns[:15]) if mentioned_columns else "None mentioned yet"}
 
+**Categorical Column Values (ACTUAL VALUES FROM DATA):**
+{chr(10).join(f"- {cv}" for cv in categorical_values_context[:10]) if categorical_values_context else "- No categorical values pre-analyzed"}
+
+IMPORTANT: If your question involves filtering by categorical columns (like Document Type, Status, etc.),
+USE THE EXACT VALUES shown above in your options. These are the ACTUAL values from the user's data.
+For example, if data has "STANDARD" and "CREDIT", don't suggest "Standard" and "Credit".
+
 **Your Task:**
 1. Transform the technical data question into a friendly, clear question
-2. Create 4 SPECIFIC options about data interpretation (use real column names)
+2. Create 4 SPECIFIC options about data interpretation (use real column names AND actual categorical values)
 3. Make the 5th option: "Other (please specify)"
 4. Write context that references actual files/columns and explains why we need to know
 5. Keep language accessible to business users, not just IT
 
 **Key Guidelines:**
 - Reference actual file names and column names in context and options
+- Use EXACT categorical values from the data (shown above) in your options
 - Make options about data interpretation, not business rules
 - Focus on column meanings, relationships, aggregations, data quality
 - Avoid jargon - speak like a helpful data analyst explaining the dataset

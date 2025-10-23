@@ -587,11 +587,18 @@ Use this intelligence to:
             # Pre-populate accumulated knowledge with data intelligence
             if hasattr(dataset_intelligence, 'files') and dataset_intelligence.files:
                 for file_intel in dataset_intelligence.files:
-                    self.accumulated_knowledge.csv_files_info[file_intel.filename] = {
+                    file_info = {
                         "rows": file_intel.row_count,
                         "columns": file_intel.column_count,
                         "business_domain": file_intel.inferred_business_domain
                     }
+
+                    # Add categorical enrichment data if available
+                    if hasattr(file_intel, 'categorical_enrichment') and file_intel.categorical_enrichment:
+                        file_info["categorical_enrichment"] = file_intel.categorical_enrichment
+                        logger.info(f"Added categorical enrichment for {file_intel.filename}: {len(file_intel.categorical_enrichment)} columns")
+
+                    self.accumulated_knowledge.csv_files_info[file_intel.filename] = file_info
                     self.accumulated_knowledge.mentioned_columns.extend(
                         [col.column_name for col in file_intel.columns]
                     )

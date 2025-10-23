@@ -374,6 +374,8 @@ class IntentAgent:
         # Extract useful context from accumulated knowledge
         mentioned_columns = []
         csv_files_info = {}
+        categorical_values_context = []
+
         if accumulated_knowledge:
             mentioned_columns = accumulated_knowledge.get('mentioned_columns', [])
             csv_files_info = accumulated_knowledge.get('csv_files_info', {})
@@ -381,6 +383,18 @@ class IntentAgent:
         # Build column context for better options
         available_columns = []
         for filename, file_info in csv_files_info.items():
+            # Extract categorical enrichment data (IMPORTANT for accurate options)
+            if isinstance(file_info, dict):
+                categorical_enrichment = file_info.get('categorical_enrichment', {})
+                if categorical_enrichment:
+                    for col_name, enrichment_data in categorical_enrichment.items():
+                        values = enrichment_data.get('values', [])
+                        if values:
+                            values_str = ', '.join(map(str, values[:10]))
+                            if len(values) > 10:
+                                values_str += f" (and {len(values) - 10} more)"
+                            categorical_values_context.append(f"{col_name}: {values_str}")
+
             for col_type, cols in file_info.items():
                 if isinstance(cols, list):
                     available_columns.extend(cols)
@@ -401,15 +415,22 @@ Draft a clear, user-friendly multiple-choice question based on RAA's analysis.
 **Mentioned Columns:**
 {', '.join(mentioned_columns[:15]) if mentioned_columns else "None mentioned yet"}
 
+**Categorical Column Values (ACTUAL VALUES FROM DATA):**
+{chr(10).join(f"- {cv}" for cv in categorical_values_context[:10]) if categorical_values_context else "- No categorical values pre-analyzed"}
+
+IMPORTANT: If your question involves filtering or selection based on categorical columns,
+USE THE EXACT VALUES shown above. These are the ACTUAL values from the user's data.
+Example: If data has "STANDARD" and "CREDIT", use those exact values, not "Standard" or "STD".
+
 **Your Task:**
 1. Transform the technical context into a friendly, conversational question
-2. Create 4 SPECIFIC, ACTIONABLE options (use real column names when possible)
+2. Create 4 SPECIFIC, ACTIONABLE options (use real column names AND exact categorical values)
 3. Make the 5th option: "Other (please specify)"
 4. Write context that explains what we know and why we're asking
 5. Keep language simple and friendly
 
 **Key Guidelines:**
-- Use actual column names from the dataset in your options
+- Use actual column names AND exact categorical values from the dataset
 - Make options concrete (e.g., "$100 threshold" not "some threshold")
 - Tailor to the business domain (finance/audit/compliance)
 - Avoid jargon - speak like a helpful analyst

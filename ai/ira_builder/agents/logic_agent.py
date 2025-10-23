@@ -607,6 +607,7 @@ class LogicAgent:
         thresholds = {}
         output_columns = []
         mentioned_columns = []
+        categorical_values_context = []
 
         if accumulated_knowledge:
             user_goal = accumulated_knowledge.get('user_goal', '')
@@ -615,6 +616,20 @@ class LogicAgent:
             thresholds = accumulated_knowledge.get('thresholds', {})
             output_columns = accumulated_knowledge.get('output_columns', [])
             mentioned_columns = accumulated_knowledge.get('mentioned_columns', [])
+
+            # Extract categorical enrichment data (IMPORTANT for accurate filter options)
+            csv_files_info = accumulated_knowledge.get('csv_files_info', {})
+            for filename, file_info in csv_files_info.items():
+                if isinstance(file_info, dict):
+                    categorical_enrichment = file_info.get('categorical_enrichment', {})
+                    if categorical_enrichment:
+                        for col_name, enrichment_data in categorical_enrichment.items():
+                            values = enrichment_data.get('values', [])
+                            if values:
+                                values_str = ', '.join(map(str, values[:10]))
+                                if len(values) > 10:
+                                    values_str += f" (and {len(values) - 10} more)"
+                                categorical_values_context.append(f"{col_name}: {values_str}")
 
         # Build business context
         business_context_parts = []
@@ -657,15 +672,24 @@ Draft a clear, user-friendly business logic question based on RAA's analysis.
 **Available Columns for Rules:**
 {', '.join(mentioned_columns[:20]) if mentioned_columns else "No column information available"}
 
+**Categorical Column Values (ACTUAL VALUES FROM DATA):**
+{chr(10).join(f"- {cv}" for cv in categorical_values_context[:10]) if categorical_values_context else "- No categorical values pre-analyzed"}
+
+CRITICAL: If your question involves filtering by categorical columns (like Document Type, Status, etc.),
+USE THE EXACT VALUES shown above in your options. These are the ACTUAL values from the user's data.
+For example, if data has "STANDARD" and "CREDIT", use those exact values, not "Standard" or "STD".
+This ensures the filtering rules can be implemented correctly.
+
 **Your Task:**
 1. Transform the technical logic question into a business-friendly question
-2. Create 4 SPECIFIC business rule options (with concrete thresholds, criteria)
+2. Create 4 SPECIFIC business rule options (with concrete thresholds, criteria, AND exact categorical values)
 3. Make the 5th option: "Other (please specify)"
 4. Write context that explains the business scenario and why this rule matters
 5. Keep language business-friendly - avoid technical jargon
 
 **Key Guidelines:**
 - Use concrete values (e.g., "$100", "30 days", "exact match")
+- Use EXACT categorical values from the data (shown above) when creating filter options
 - Make options about WHAT to do, not HOW to implement it
 - Focus on business rules: thresholds, filtering, matching, calculations
 - Speak like a business analyst, not a developer
