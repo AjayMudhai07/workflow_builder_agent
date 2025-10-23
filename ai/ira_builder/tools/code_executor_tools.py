@@ -336,8 +336,8 @@ def preview_dataframe(filepath: str, rows: int = 20, total_row_count: int = None
         # Import the helper function
         from ai.ira_builder.tools.csv_tools import read_csv_with_encoding
 
-        # Only read the rows we need for preview (much faster for large files)
-        # Use nrows parameter to avoid loading entire CSV
+        # ALWAYS read first N rows for preview (works regardless of file size)
+        # This is fast even for huge files since we only read what we need
         df = read_csv_with_encoding(filepath, nrows=rows)
 
         # Use pre-computed row count if provided (avoids slow re-counting for large files)
@@ -351,20 +351,15 @@ def preview_dataframe(filepath: str, rows: int = 20, total_row_count: int = None
                 total_rows_display = f"{total_rows:,}"
                 logger.debug(f"Using pre-computed row count: {total_rows}")
         else:
-            # Get total row count efficiently (same method as validate_output_dataframe)
-            row_count = _count_csv_rows_with_timeout(filepath, timeout_seconds=10)
-            if row_count == -1:
-                total_rows_display = "Not Calculated (Data too large)"
-                logger.debug("Row counting timed out")
-            else:
-                total_rows = row_count
-                total_rows_display = f"{total_rows:,}"
-                logger.debug(f"Counted rows: {total_rows}")
+            # For preview-only calls without validation, skip counting entirely
+            # Just show that we're displaying first N rows
+            total_rows_display = "Unknown (showing first rows only)"
+            logger.debug("Preview without row count - skipping count for speed")
 
-        # Generate markdown table
+        # Generate markdown table (ALWAYS works, even for huge files)
         table = df.to_markdown(index=False)
 
-        header = f"**Preview ({total_rows_display} total rows, showing first {min(rows, len(df))}):**\n\n"
+        header = f"**Preview ({total_rows_display} total rows, showing first {len(df)}):**\n\n"
 
         logger.debug(f"Preview generated: showing {len(df)} rows")
         return header + table
@@ -780,7 +775,11 @@ def get_dataframe_summary(filepath: str, total_row_count: int = None) -> Dict[st
         if len(numerical_cols) > 0:
             summary["numerical_summary"] = df_sample[numerical_cols].describe().to_dict()
 
-        logger.debug(f"Summary generated for {total_rows} rows (sampled {min(sample_size, total_rows)} rows)")
+        # Log summary generation (handle string row_count)
+        if isinstance(total_rows, str):
+            logger.debug(f"Summary generated from sample of {len(df_sample)} rows (total: {total_rows})")
+        else:
+            logger.debug(f"Summary generated for {total_rows} rows (sampled {min(sample_size, total_rows)} rows)")
         return summary
 
     except Exception as e:
