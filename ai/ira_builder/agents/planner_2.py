@@ -256,7 +256,7 @@ After scoring all three dimensions, decide the next action using this logic:
 ## STEP 1: Check for Plan Generation Readiness
 
 IF all three dimensions are sufficiently understood:
-  → Check: intent_score >= 0.75 AND data_score >= 0.75 AND logic_score >= 0.75
+  → Check: intent_score >= 0.90 AND data_score >= 0.90 AND logic_score >= 0.95
   → BUT BEFORE generating plan, check accumulated_knowledge for "final_confirmation_asked"
 
   IF "final_confirmation_asked" is NOT in accumulated_knowledge or is False:
@@ -309,7 +309,7 @@ IF no unclear responses AND not ready for plan generation:
 
 ### 3A: Intent Understanding First (HIGHEST PRIORITY)
 
-IF intent_score < 0.75:
+IF intent_score < 0.90:
   → next_action = "ask_intent_question"
   → next_agent = "intent_agent"
   → reasoning = "Intent not sufficiently clear (score {intent_score} < 0.75).
@@ -333,7 +333,7 @@ IF intent_score < 0.75:
 
 ### 3B: Data Understanding Second (AFTER Intent Complete)
 
-ELSE IF intent_score >= 0.75 AND data_score < 0.75:
+ELSE IF intent_score >= 0.90 AND data_score < 0.90:
   → next_action = "ask_data_question"
   → next_agent = "data_agent"
   → reasoning = "Intent is clear (score {intent_score} >= 0.75) but data understanding 
@@ -345,7 +345,7 @@ ELSE IF intent_score >= 0.75 AND data_score < 0.75:
 
 ### 3C: Business Logic Third (AFTER Intent AND Data Complete)
 
-ELSE IF intent_score >= 0.75 AND data_score >= 0.75 AND logic_score < 0.75:
+ELSE IF intent_score >= 0.90 AND data_score >= 0.90 AND logic_score < 0.95:
   → next_action = "ask_logic_question"
   → next_agent = "logic_agent"
   → reasoning = "Intent is clear (score {intent_score} >= 0.75) and data is understood 
