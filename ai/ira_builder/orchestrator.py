@@ -2589,11 +2589,13 @@ Generate the complete, updated code now."""
                         "is_business_logic_plan": True
                     })
 
-                    # Step 6: Change phase to PLAN_REVIEW
-                    self._change_phase(WorkflowPhase.PLAN_REVIEW)
-
-                    # Step 7: Persist state
+                    # Step 6: Persist state FIRST (before phase change to ensure plan is saved)
                     self._persist_state()
+
+                    # Step 7: Change phase to PLAN_REVIEW (triggers WebSocket notification)
+                    # This MUST happen after persist to avoid race condition where frontend
+                    # receives phase change and calls GET /plan before plan is saved
+                    self._change_phase(WorkflowPhase.PLAN_REVIEW)
 
                     logger.info("=" * 80)
                     logger.info("BUSINESS LOGIC PLAN READY FOR REVIEW")
