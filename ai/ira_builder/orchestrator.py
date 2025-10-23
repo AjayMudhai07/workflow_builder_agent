@@ -455,6 +455,162 @@ class IRAOrchestrator:
 
         logger.info(f"Orchestrator initialized for workflow: {workflow_name}")
 
+    def _convert_dataset_intelligence_to_file_analysis(
+        self,
+        dataset_intelligence: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Convert dataset_intelligence (from DatasetAnalyzer) to file_analysis structure
+        (compatible with Business Logic Plan Generator and old file_analyzer format).
+
+        This ensures categorical enrichment and all dataset intelligence flows to
+        the Business Logic Plan Generator through the file_analysis parameter.
+
+        Args:
+            dataset_intelligence: Dataset intelligence from DatasetAnalyzer
+
+        Returns:
+            file_analysis dict compatible with Business Logic Plan Generator
+        """
+        try:
+            logger.info("Converting dataset_intelligence to file_analysis format...")
+
+            # Extract data from dataset_intelligence
+            intelligence_files = dataset_intelligence.get('files', [])
+            dataset_summary = dataset_intelligence.get('dataset_summary', '')
+            total_rows = dataset_intelligence.get('total_rows', 0)
+            total_columns = dataset_intelligence.get('total_columns', 0)
+
+            # Build file_analysis structure
+            files = []
+            for file_intel in intelligence_files:
+                filename = file_intel.get('filename', '')
+                row_count = file_intel.get('row_count', 0)
+                column_count = file_intel.get('column_count', 0)
+                columns_list = file_intel.get('columns', [])
+                inferred_business_domain = file_intel.get('inferred_business_domain', '')
+                categorical_enrichment = file_intel.get('categorical_enrichment', {})
+
+                # Build column descriptions from ColumnClassification objects
+                column_descriptions = []
+                columns = []
+                for col in columns_list:
+                    col_name = col.get('column_name', '')
+                    data_type = col.get('data_type', 'object')
+                    inferred_purpose = col.get('inferred_purpose', '')
+                    reasoning = col.get('reasoning', '')
+
+                    # Add to columns list (for compatibility)
+                    columns.append({
+                        "name": col_name,
+                        "type": data_type
+                    })
+
+                    # Add to column_descriptions
+                    column_descriptions.append({
+                        "name": col_name,
+                        "description": f"{inferred_purpose.title()}: {reasoning}"
+                    })
+
+                # Create file description from business domain
+                file_description = f"{inferred_business_domain.replace('_', ' ').title()} data"
+                if inferred_business_domain:
+                    file_description = f"This file contains {inferred_business_domain.replace('_', ' ')} data"
+
+                file_entry = {
+                    "file_name": filename,
+                    "file_path": file_intel.get('filepath', ''),
+                    "file_description": file_description,
+                    "row_count": row_count,
+                    "column_count": column_count,
+                    "columns": columns,
+                    "column_descriptions": column_descriptions,
+                    "categorical_enrichment": categorical_enrichment  # IMPORTANT: Include enrichment
+                }
+
+                files.append(file_entry)
+                logger.info(f"Converted {filename} to file_analysis format (enrichment: {len(categorical_enrichment)} columns)")
+
+            file_analysis = {
+                "files": files,
+                "dataset_description": dataset_summary,
+                "total_files": len(files),
+                "total_columns": total_columns,
+                "total_rows": total_rows
+            }
+
+            logger.info(f"✅ Converted dataset_intelligence to file_analysis ({len(files)} files)")
+            return file_analysis
+
+        except Exception as e:
+            logger.error(f"Error converting dataset_intelligence to file_analysis: {str(e)}", exc_info=True)
+            # Return minimal file_analysis structure
+            return {
+                "files": [],
+                "dataset_description": "Unable to convert dataset intelligence",
+                "total_files": 0,
+                "total_columns": 0,
+                "total_rows": 0
+            }
+
+    def _merge_categorical_enrichment_into_file_analysis(
+        self,
+        dataset_intelligence: Dict[str, Any],
+        file_analysis: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Merge categorical enrichment from dataset_intelligence into file_analysis structure.
+
+        This ensures categorical enrichment flows through both paths:
+        1. To RAA agents via accumulated_knowledge
+        2. To Business Logic Plan Generator via file_analysis
+
+        Args:
+            dataset_intelligence: Dataset intelligence from DatasetAnalyzer (with categorical_enrichment)
+            file_analysis: Basic file analysis results (without categorical_enrichment)
+
+        Returns:
+            Enhanced file_analysis with categorical_enrichment added to each file
+        """
+        try:
+            logger.info("Merging categorical enrichment into file_analysis structure...")
+
+            # Make a copy to avoid mutating original
+            import copy
+            enhanced_analysis = copy.deepcopy(file_analysis)
+
+            # Extract files from dataset_intelligence
+            intelligence_files = dataset_intelligence.get('files', [])
+            analysis_files = enhanced_analysis.get('files', [])
+
+            # Create a mapping by filename for quick lookup
+            enrichment_by_filename = {}
+            for file_intel in intelligence_files:
+                filename = file_intel.get('filename', '')
+                categorical_enrichment = file_intel.get('categorical_enrichment', {})
+                if categorical_enrichment:
+                    enrichment_by_filename[filename] = categorical_enrichment
+                    logger.info(f"Found categorical enrichment for {filename}: {len(categorical_enrichment)} columns")
+
+            # Merge categorical enrichment into file_analysis files
+            enriched_count = 0
+            for analysis_file in analysis_files:
+                file_name = analysis_file.get('file_name', '')
+
+                # Look for matching enrichment data
+                if file_name in enrichment_by_filename:
+                    analysis_file['categorical_enrichment'] = enrichment_by_filename[file_name]
+                    enriched_count += 1
+                    logger.info(f"✅ Added categorical enrichment to {file_name} in file_analysis")
+
+            logger.info(f"✅ Merged categorical enrichment into {enriched_count}/{len(analysis_files)} files")
+            return enhanced_analysis
+
+        except Exception as e:
+            logger.error(f"Error merging categorical enrichment: {str(e)}", exc_info=True)
+            # Return original file_analysis if merge fails
+            return file_analysis
+
     async def analyze_uploaded_files(self) -> Dict[str, Any]:
         """
         Analyze uploaded CSV files using LLM to generate:
@@ -634,6 +790,19 @@ class IRAOrchestrator:
             else:
                 self.state.dataset_intelligence = dataset_intelligence
             logger.info(f"✅ Dataset analysis complete - {len(self.csv_filepaths)} files analyzed")
+
+            # Step 2.5: Create file_analysis_results from dataset_intelligence
+            # This ensures categorical enrichment flows to Business Logic Plan Generator
+            if self.state.dataset_intelligence:
+                logger.info("Step 2.5: Creating file_analysis_results from dataset_intelligence...")
+                self.state.file_analysis_results = self._convert_dataset_intelligence_to_file_analysis(
+                    dataset_intelligence=self.state.dataset_intelligence
+                )
+                # Persist file_analysis
+                self._persist_state()
+                logger.info("✅ file_analysis_results created with categorical enrichment")
+            else:
+                logger.warning("Skipping file_analysis creation - dataset_intelligence not available")
 
             # Step 3: Create RAA Agent
             logger.info("Step 3: Creating Requirements Analysis Agent (RAA)...")

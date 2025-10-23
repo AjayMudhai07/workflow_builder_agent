@@ -78,6 +78,8 @@ Synthesize the business rules from the accumulated knowledge. Focus on:
 - How to handle exceptions (edge cases)
 - What grouping/aggregation applies (business grouping)
 
+**CRITICAL**: When writing business rules involving categorical columns, USE THE EXACT VALUES from the "Categorical Column Values" section in the file analysis. Do NOT use different capitalization, abbreviations, or assumed values.
+
 Format as numbered rules:
 
 <b>Rule 1</b>: [Business rule from Logic Agent - e.g., "Flag records where Document Date month-year is later than Posting Date month-year"]
@@ -86,7 +88,9 @@ Format as numbered rules:
 
 <b>Rule 3</b>: [Threshold or criteria - e.g., "Include all amounts without minimum threshold"]
 
-<b>Rule 4</b>: [Derived calculation - e.g., "Calculate month difference between Document Date and Posting Date"]
+<b>Rule 4</b>: [Filtering rule using EXACT categorical values - e.g., "Include only Document Type 'STANDARD' and 'CREDIT' (exclude 'Stndrd' or other variants)"]
+
+<b>Rule 5</b>: [Derived calculation - e.g., "Calculate month difference between Document Date and Posting Date"]
 
 [Continue with all business rules extracted from the accumulated knowledge...]
 
@@ -367,10 +371,10 @@ class BusinessLogicPlanGenerator:
         file_analysis: Dict[str, Any]
     ) -> str:
         """
-        Format file analysis results.
+        Format file analysis results including categorical enrichment.
 
         Args:
-            file_analysis: Dataset analyzer results
+            file_analysis: Dataset analyzer results (may include categorical_enrichment)
 
         Returns:
             Formatted string
@@ -401,6 +405,26 @@ class BusinessLogicPlanGenerator:
                         col_name = col_desc.get("name", "Unknown")
                         col_description = col_desc.get("description", "No description")
                         sections.append(f"  - {col_name}: {col_description}")
+
+                # IMPORTANT: Include categorical enrichment if available
+                categorical_enrichment = file_info.get("categorical_enrichment", {})
+                if categorical_enrichment:
+                    sections.append("\n**Categorical Column Values (ACTUAL VALUES FROM DATA):**")
+                    for col_name, enrichment_data in categorical_enrichment.items():
+                        values = enrichment_data.get('values', [])
+                        method = enrichment_data.get('method', 'unknown')
+                        count = enrichment_data.get('count', len(values))
+
+                        if values:
+                            # Show first 10 values
+                            values_str = ', '.join([f'"{v}"' for v in values[:10]])
+                            if count > 10:
+                                values_str += f" (and {count - 10} more)"
+
+                            sections.append(f"  - {col_name}: {values_str}")
+                    sections.append("")
+                    sections.append("NOTE: Use these EXACT values when generating business logic rules involving categorical columns.")
+
             sections.append("")
 
         return "\n".join(sections)
