@@ -195,6 +195,9 @@ export default function DashboardPage() {
                       router.push(`/workflow/${workflow.workflow_id}/generation`);
                     } else if (workflow.phase === "plan_review") {
                       router.push(`/workflow/${workflow.workflow_id}/plan`);
+                    } else if (workflow.phase === "failed") {
+                      // For failed workflows, go to plan page where user can retry
+                      router.push(`/workflow/${workflow.workflow_id}/plan`);
                     } else {
                       router.push(`/workflow/${workflow.workflow_id}/conversation`);
                     }
