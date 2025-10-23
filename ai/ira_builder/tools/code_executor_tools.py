@@ -425,29 +425,43 @@ def validate_output_dataframe(filepath: str) -> Dict[str, Any]:
     # Try to read and validate the CSV
     try:
         from ai.ira_builder.tools.csv_tools import read_csv_with_encoding
-        df = read_csv_with_encoding(filepath)
+
+        # For large files, only read headers and use file operations for row count
+        file_size = path.stat().st_size
+        file_size_mb = round(file_size / (1024 * 1024), 2)
+
+        # Read only first few rows to get column info (much faster for large files)
+        df_sample = read_csv_with_encoding(filepath, nrows=5)
+        columns = df_sample.columns.tolist()
+        column_count = len(columns)
+
+        # For row count, use efficient file reading instead of loading entire CSV
+        # This is much faster for large files (124k+ rows)
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            # Count lines (subtract 1 for header)
+            row_count = sum(1 for _ in f) - 1
 
         # Check if dataframe is empty - this is VALID for filter/search operations
-        if len(df) == 0:
+        if row_count == 0:
             logger.info(f"Output dataframe is empty (0 rows) - this is valid for filter/search operations: {filepath}")
             return {
                 "valid": True,  # Empty results are valid (e.g., no duplicates found, no matches, etc.)
                 "error": None,
                 "warning": "Output contains 0 rows - this may indicate no matches found (valid result)",
                 "row_count": 0,
-                "column_count": len(df.columns),
-                "columns": df.columns.tolist(),
-                "file_size_mb": round(path.stat().st_size / (1024 * 1024), 2)
+                "column_count": column_count,
+                "columns": columns,
+                "file_size_mb": file_size_mb
             }
 
-        logger.info(f"Output validated: {len(df)} rows, {len(df.columns)} columns")
+        logger.info(f"Output validated: {row_count} rows, {column_count} columns ({file_size_mb} MB)")
         return {
             "valid": True,
             "error": None,
-            "row_count": len(df),
-            "column_count": len(df.columns),
-            "columns": df.columns.tolist(),
-            "file_size_mb": round(path.stat().st_size / (1024 * 1024), 2)
+            "row_count": row_count,
+            "column_count": column_count,
+            "columns": columns,
+            "file_size_mb": file_size_mb
         }
 
     except pd.errors.EmptyDataError:
