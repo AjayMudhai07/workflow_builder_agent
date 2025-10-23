@@ -13,11 +13,40 @@ from enum import Enum
 from typing import Dict, Any, List, Optional, Callable
 from pathlib import Path
 from datetime import datetime
+from dataclasses import asdict
 
 from ai.ira_builder.agents.planner import (
     create_planner_agent,
     PlannerAgent,
     PlannerResponseType
+)
+from ai.ira_builder.agents.planner_2 import (
+    create_requirements_analysis_agent,
+    RequirementsAnalysisAgent,
+    AnalysisResult
+)
+from ai.ira_builder.agents.intent_agent import (
+    create_intent_agent,
+    IntentAgent,
+    IntentQuestion
+)
+from ai.ira_builder.agents.data_agent import (
+    create_data_agent,
+    DataAgent,
+    DataQuestion
+)
+from ai.ira_builder.agents.logic_agent import (
+    create_logic_agent,
+    LogicAgent,
+    LogicQuestion
+)
+from ai.ira_builder.agents.business_logic_plan_generator import (
+    create_business_logic_plan_generator,
+    BusinessLogicPlanGenerator
+)
+from ai.ira_builder.agents.data_analyser import (
+    create_dataset_analyzer,
+    DatasetAnalyzer
 )
 from ai.ira_builder.agents.coder import create_coder_agent, CoderAgent
 from ai.ira_builder.utils.logger import get_logger
@@ -56,6 +85,48 @@ def sanitize_filename(name: str) -> str:
     if len(sanitized) > 200:
         sanitized = sanitized[:200]
     return sanitized
+
+
+def convert_thread_state_to_json_serializable(thread_state: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convert thread state to JSON-serializable format.
+
+    The thread.serialize() method may return objects that aren't directly JSON serializable
+    (like ChatMessage objects). This function recursively converts them to dicts.
+
+    Args:
+        thread_state: The thread state dict from thread.serialize()
+
+    Returns:
+        JSON-serializable dict
+    """
+    if thread_state is None:
+        return None
+
+    def convert_value(value):
+        """Recursively convert values to JSON-serializable types."""
+        if value is None:
+            return None
+        elif isinstance(value, (str, int, float, bool)):
+            return value
+        elif isinstance(value, list):
+            return [convert_value(item) for item in value]
+        elif isinstance(value, dict):
+            return {k: convert_value(v) for k, v in value.items()}
+        elif hasattr(value, 'model_dump'):
+            # Pydantic models
+            return value.model_dump()
+        elif hasattr(value, 'to_dict'):
+            # Objects with to_dict method
+            return convert_value(value.to_dict())
+        elif hasattr(value, '__dict__'):
+            # Generic objects with __dict__
+            return convert_value(vars(value))
+        else:
+            # Fallback: convert to string
+            return str(value)
+
+    return convert_value(thread_state)
 
 
 # =============================================================================
@@ -99,12 +170,26 @@ class WorkflowState:
         self.started_at: Optional[datetime] = None
         self.completed_at: Optional[datetime] = None
 
-        # Planner phase
+        # Planner phase (legacy - keeping for backward compatibility)
         self.planner_questions_asked = 0
         self.planner_conversation_history: List[Dict[str, str]] = []
         self.current_question: Optional[str] = None
         self.business_logic_plan: Optional[str] = None
         self.plan_approved = False
+
+        # RAA (Requirements Analysis Agent) phase - NEW
+        self.dataset_intelligence: Optional[Dict[str, Any]] = None
+        self.raa_analysis_result: Optional[Dict[str, Any]] = None
+        self.raa_accumulated_knowledge: Optional[Dict[str, Any]] = None
+        self.raa_thread_state: Optional[Dict[str, Any]] = None  # Serialized conversation thread
+        self.intent_understanding_score: float = 0.0
+        self.data_understanding_score: float = 0.0
+        self.business_logic_understanding_score: float = 0.0
+        self.overall_completeness: float = 0.0
+
+        # Intent Agent phase - NEW
+        self.current_intent_question: Optional[Dict[str, Any]] = None
+        self.intent_questions_asked = 0
 
         # Coder phase
         self.generated_code: Optional[str] = None
@@ -174,6 +259,17 @@ class WorkflowState:
             "analysis_refinement_iterations": self.analysis_refinement_iterations,
             "file_analysis_results": self.file_analysis_results,
             "dataset_description": self.dataset_description,
+            # RAA and Intent Agent state - NEW
+            "dataset_intelligence": self.dataset_intelligence,
+            "raa_analysis_result": self.raa_analysis_result,
+            "raa_accumulated_knowledge": self.raa_accumulated_knowledge,
+            "raa_thread_state": self.raa_thread_state,
+            "intent_understanding_score": self.intent_understanding_score,
+            "data_understanding_score": self.data_understanding_score,
+            "business_logic_understanding_score": self.business_logic_understanding_score,
+            "overall_completeness": self.overall_completeness,
+            "current_intent_question": self.current_intent_question,
+            "intent_questions_asked": self.intent_questions_asked,
             "workflow_config": self.workflow_config,
             "business_process_id": self.business_process_id,
             "deployment_mode": self.deployment_mode,
@@ -231,6 +327,17 @@ class WorkflowState:
         state.analysis_refinement_iterations = data.get("analysis_refinement_iterations", 0)
         state.file_analysis_results = data.get("file_analysis_results")
         state.dataset_description = data.get("dataset_description")
+        # RAA and Intent Agent state - NEW
+        state.dataset_intelligence = data.get("dataset_intelligence")
+        state.raa_analysis_result = data.get("raa_analysis_result")
+        state.raa_accumulated_knowledge = data.get("raa_accumulated_knowledge")
+        state.raa_thread_state = data.get("raa_thread_state")
+        state.intent_understanding_score = data.get("intent_understanding_score", 0.0)
+        state.data_understanding_score = data.get("data_understanding_score", 0.0)
+        state.business_logic_understanding_score = data.get("business_logic_understanding_score", 0.0)
+        state.overall_completeness = data.get("overall_completeness", 0.0)
+        state.current_intent_question = data.get("current_intent_question")
+        state.intent_questions_asked = data.get("intent_questions_asked", 0)
         state.error_message = data.get("error_message")
         state.is_successful = data.get("is_successful", False)
 
@@ -330,8 +437,16 @@ class IRAOrchestrator:
         self.on_coder_progress = on_coder_progress
 
         # Agents (initialized later)
-        self.planner: Optional[PlannerAgent] = None
+        self.planner: Optional[PlannerAgent] = None  # Legacy planner
         self.coder: Optional[CoderAgent] = None
+
+        # New agents - RAA flow
+        self.dataset_analyzer: Optional[DatasetAnalyzer] = None
+        self.raa_agent: Optional[RequirementsAnalysisAgent] = None
+        self.intent_agent: Optional[IntentAgent] = None
+        self.data_agent: Optional[DataAgent] = None
+        self.logic_agent: Optional[LogicAgent] = None
+        self.business_logic_plan_generator: Optional[BusinessLogicPlanGenerator] = None
 
         # Agent configuration
         self.max_planner_questions = max_planner_questions
@@ -464,6 +579,253 @@ class IRAOrchestrator:
 
         except Exception as e:
             logger.error(f"Error starting workflow: {str(e)}", exc_info=True)
+            self.state.error_message = str(e)
+            self._change_phase(WorkflowPhase.FAILED)
+            self._persist_state()
+
+            return {
+                "status": "error",
+                "phase": self.state.phase.value,
+                "error": str(e)
+            }
+
+    async def start_with_raa(self) -> Dict[str, Any]:
+        """
+        Start the workflow using RAA (Requirements Analysis Agent) flow.
+
+        This is the new V2 flow:
+        1. DatasetAnalyzer analyzes CSV files
+        2. RAA performs initial requirements analysis
+        3. If RAA decides, routes to Intent Agent for clarification
+        4. Returns question to user
+
+        Returns:
+            Dictionary with initial response (could be question from RAA or Intent Agent)
+        """
+        logger.info("=" * 80)
+        logger.info(f"STARTING WORKFLOW WITH RAA: {self.workflow_name}")
+        logger.info("=" * 80)
+
+        self.state.started_at = datetime.now()
+        self._change_phase(WorkflowPhase.PLANNING)
+
+        try:
+            config = get_config()
+
+            # Step 1: Create Dataset Analyzer and analyze files
+            logger.info("Step 1: Creating Dataset Analyzer...")
+            self.dataset_analyzer = create_dataset_analyzer(
+                provider=config.planner_provider,
+                model=self.model
+            )
+            logger.info(f"Dataset Analyzer created with provider: {config.planner_provider}")
+
+            logger.info("Step 2: Analyzing dataset with LLM-powered intelligence...")
+            dataset_intelligence = await self.dataset_analyzer.analyze_dataset(
+                csv_filepaths=self.csv_filepaths,
+                workflow_description=self.workflow_description
+            )
+            # Convert dataclass to dict for JSON serialization
+            from dataclasses import is_dataclass
+            if is_dataclass(dataset_intelligence):
+                self.state.dataset_intelligence = asdict(dataset_intelligence)
+            elif hasattr(dataset_intelligence, 'to_dict'):
+                self.state.dataset_intelligence = dataset_intelligence.to_dict()
+            else:
+                self.state.dataset_intelligence = dataset_intelligence
+            logger.info(f"✅ Dataset analysis complete - {len(self.csv_filepaths)} files analyzed")
+
+            # Step 3: Create RAA Agent
+            logger.info("Step 3: Creating Requirements Analysis Agent (RAA)...")
+            self.raa_agent = create_requirements_analysis_agent(
+                provider=config.planner_provider,
+                model=self.model,
+                temperature=0.3
+            )
+            logger.info(f"RAA Agent created with provider: {config.planner_provider}")
+
+            # Step 4: Run initial RAA analysis
+            logger.info("Step 4: Running initial requirements analysis...")
+            raa_result = await self.raa_agent.analyze_initial_input(
+                workflow_name=self.workflow_name,
+                workflow_description=self.workflow_description,
+                csv_filepaths=self.csv_filepaths,
+                dataset_intelligence=dataset_intelligence
+            )
+
+            # Store RAA analysis result
+            self.state.raa_analysis_result = raa_result.to_dict() if hasattr(raa_result, 'to_dict') else raa_result
+            # Convert accumulated_knowledge to dict for JSON serialization
+            if self.raa_agent.accumulated_knowledge:
+                self.state.raa_accumulated_knowledge = asdict(self.raa_agent.accumulated_knowledge)
+            else:
+                self.state.raa_accumulated_knowledge = None
+            # Serialize and store the conversation thread
+            if self.raa_agent.thread:
+                logger.info("Serializing RAA conversation thread...")
+                raw_thread_state = await self.raa_agent.thread.serialize()
+                self.state.raa_thread_state = convert_thread_state_to_json_serializable(raw_thread_state)
+            else:
+                self.state.raa_thread_state = None
+            self.state.intent_understanding_score = raa_result.intent_understanding.score
+            self.state.data_understanding_score = raa_result.data_understanding.score
+            self.state.business_logic_understanding_score = raa_result.business_logic_understanding.score
+            self.state.overall_completeness = raa_result.overall_completeness
+
+            logger.info(f"📊 Understanding Scores:")
+            logger.info(f"   Intent: {raa_result.intent_understanding.score:.2f}")
+            logger.info(f"   Data: {raa_result.data_understanding.score:.2f}")
+            logger.info(f"   Business Logic: {raa_result.business_logic_understanding.score:.2f}")
+            logger.info(f"   Overall Completeness: {raa_result.overall_completeness:.2f}")
+
+            # Step 5: Check if RAA routes to a question agent
+            if raa_result.next_agent in ["intent_agent", "data_agent", "logic_agent"]:
+                logger.info(f"🔀 RAA routing to {raa_result.next_agent} for {raa_result.next_action}...")
+
+                # Prepare common data
+                accumulated_knowledge_dict = asdict(self.raa_agent.accumulated_knowledge) if self.raa_agent.accumulated_knowledge else None
+
+                # Route to appropriate agent
+                if raa_result.next_agent == "intent_agent":
+                    # Create Intent Agent if not exists
+                    if not self.intent_agent:
+                        logger.info("Step 5a: Creating Intent Agent...")
+                        self.intent_agent = create_intent_agent(
+                            provider=config.intent_agent_provider,
+                            model=config.intent_agent_model,
+                            temperature=0.3
+                        )
+                        logger.info(f"Intent Agent created with provider: {config.intent_agent_provider}, model: {config.intent_agent_model}")
+
+                    # Generate intent question
+                    logger.info("Step 5b: Drafting user-friendly intent question...")
+                    intent_understanding_dict = asdict(raa_result.intent_understanding)
+
+                    question = await self.intent_agent.generate_question(
+                        intent_understanding=intent_understanding_dict,
+                        context_for_next_agent=raa_result.context_for_next_agent,
+                        accumulated_knowledge=accumulated_knowledge_dict,
+                        suggested_question=raa_result.suggested_question
+                    )
+                    question_type = "INTENT"
+
+                elif raa_result.next_agent == "data_agent":
+                    # Create Data Agent if not exists
+                    if not self.data_agent:
+                        logger.info("Step 5a: Creating Data Agent...")
+                        self.data_agent = create_data_agent(
+                            provider=config.intent_agent_provider,  # Reuse intent agent config
+                            model=config.intent_agent_model,
+                            temperature=0.3
+                        )
+                        logger.info(f"Data Agent created with provider: {config.intent_agent_provider}, model: {config.intent_agent_model}")
+
+                    # Generate data question
+                    logger.info("Step 5b: Drafting user-friendly data question...")
+                    data_understanding_dict = asdict(raa_result.data_understanding)
+
+                    question = await self.data_agent.generate_question(
+                        data_understanding=data_understanding_dict,
+                        context_for_next_agent=raa_result.context_for_next_agent,
+                        accumulated_knowledge=accumulated_knowledge_dict,
+                        suggested_question=raa_result.suggested_question
+                    )
+                    question_type = "DATA"
+
+                elif raa_result.next_agent == "logic_agent":
+                    # Create Logic Agent if not exists
+                    if not self.logic_agent:
+                        logger.info("Step 5a: Creating Logic Agent...")
+                        self.logic_agent = create_logic_agent(
+                            provider=config.intent_agent_provider,  # Reuse intent agent config
+                            model=config.intent_agent_model,
+                            temperature=0.3
+                        )
+                        logger.info(f"Logic Agent created with provider: {config.intent_agent_provider}, model: {config.intent_agent_model}")
+
+                    # Generate logic question
+                    logger.info("Step 5b: Drafting user-friendly logic question...")
+                    logic_understanding_dict = asdict(raa_result.business_logic_understanding)
+
+                    question = await self.logic_agent.generate_question(
+                        business_logic_understanding=logic_understanding_dict,
+                        context_for_next_agent=raa_result.context_for_next_agent,
+                        accumulated_knowledge=accumulated_knowledge_dict,
+                        suggested_question=raa_result.suggested_question
+                    )
+                    question_type = "LOGIC"
+
+                # Store question (common for all agents)
+                self.state.current_intent_question = question.model_dump()
+                self.state.intent_questions_asked += 1
+                # Store as JSON string so frontend can parse it properly
+                self.state.current_question = json.dumps(question.model_dump())
+
+                # Add to conversation history with agent type for Q&A extraction
+                self.state.planner_conversation_history.append({
+                    "role": "assistant",
+                    "content": question.question,
+                    "timestamp": datetime.now().isoformat(),
+                    "question_data": question.model_dump(),
+                    "next_agent": raa_result.next_agent  # Track which agent asked this question
+                })
+
+                # Log the question and options (common for all agents)
+                logger.info("=" * 80)
+                logger.info(f"🎯 {question_type} AGENT QUESTION GENERATED")
+                logger.info("=" * 80)
+                logger.info(f"Question Type: {question.question_type}")
+                logger.info(f"Question: {question.question}")
+                if question.context:
+                    logger.info(f"Context: {question.context}")
+                logger.info(f"\nOptions ({len(question.options)}):")
+                for i, option in enumerate(question.options, 1):
+                    logger.info(f"  {i}. {option}")
+                if question.option_explanations:
+                    logger.info(f"\nOption Explanations:")
+                    for i, explanation in enumerate(question.option_explanations, 1):
+                        logger.info(f"  {i}. {explanation}")
+                logger.info(f"\nReasoning: {question.reasoning}")
+                logger.info("=" * 80)
+
+                # Persist state
+                self._persist_state()
+
+                return {
+                    "status": "success",
+                    "phase": self.state.phase.value,
+                    "next_agent": raa_result.next_agent,  # Return actual agent type
+                    "question": question.model_dump(),
+                    "scores": {
+                        "intent_understanding": self.state.intent_understanding_score,
+                        "data_understanding": self.state.data_understanding_score,
+                        "business_logic_understanding": self.state.business_logic_understanding_score,
+                        "overall_completeness": self.state.overall_completeness
+                    }
+                }
+
+            # If RAA doesn't route to Intent Agent, it might generate plan or ask different question
+            # (This would be implemented later for other agent types)
+            else:
+                logger.info(f"RAA next action: {raa_result.next_action}")
+                self._persist_state()
+
+                return {
+                    "status": "success",
+                    "phase": self.state.phase.value,
+                    "next_action": raa_result.next_action,
+                    "next_agent": raa_result.next_agent,
+                    "message": raa_result.reasoning,
+                    "scores": {
+                        "intent_understanding": self.state.intent_understanding_score,
+                        "data_understanding": self.state.data_understanding_score,
+                        "business_logic_understanding": self.state.business_logic_understanding_score,
+                        "overall_completeness": self.state.overall_completeness
+                    }
+                }
+
+        except Exception as e:
+            logger.error(f"Error starting workflow with RAA: {str(e)}", exc_info=True)
             self.state.error_message = str(e)
             self._change_phase(WorkflowPhase.FAILED)
             self._persist_state()
@@ -1445,7 +1807,17 @@ output_file_path = output_path  # The .txt file where the report will be saved
 
 # Load the already-processed CSV file
 # NOTE: This CSV is the OUTPUT from the previous workflow step - do NOT apply IRA preprocessing!
-df = pd.read_csv(input_csv_path)
+# Try multiple encodings for compatibility
+encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
+df = None
+for encoding in encodings:
+    try:
+        df = pd.read_csv(input_csv_path, encoding=encoding)
+        break
+    except UnicodeDecodeError:
+        continue
+if df is None:
+    df = pd.read_csv(input_csv_path, encoding='latin-1', errors='ignore')
 print(f"Loaded {{len(df):,}} rows from processed output CSV")
 
 # PART 3: ANALYSIS AND REPORT GENERATION
@@ -1687,8 +2059,17 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 
-# Load data
-df = pd.read_csv(csv_files[0])
+# Load data (with encoding support)
+encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
+df = None
+for encoding in encodings:
+    try:
+        df = pd.read_csv(csv_files[0], encoding=encoding)
+        break
+    except UnicodeDecodeError:
+        continue
+if df is None:
+    df = pd.read_csv(csv_files[0], encoding='latin-1', errors='ignore')
 
 # Build report
 report_lines = []
@@ -1926,6 +2307,487 @@ Generate the complete, updated code now."""
                 "error": str(e)
             }
 
+    async def process_user_input_with_raa(self, user_input: str) -> Dict[str, Any]:
+        """
+        Process user's response when using RAA flow.
+
+        Handles responses from Intent Agent questions and routes back to RAA.
+
+        Args:
+            user_input: User's answer to the question
+
+        Returns:
+            Dictionary with next question or completion status
+        """
+        if self.state.phase != WorkflowPhase.PLANNING:
+            return {
+                "status": "error",
+                "error": f"Invalid phase. Expected PLANNING but got {self.state.phase.value}"
+            }
+
+        try:
+            config = get_config()
+
+            # Record user response in conversation history
+            self.state.planner_conversation_history.append({
+                "role": "user",
+                "content": user_input,
+                "timestamp": datetime.now().isoformat()
+            })
+
+            # Pass user's answer back to RAA
+            logger.info(f"Processing user input with RAA: {user_input[:100]}...")
+
+            # Recreate RAA agent if needed
+            if not self.raa_agent:
+                logger.info("Recreating RAA agent from state...")
+                self.raa_agent = create_requirements_analysis_agent(
+                    provider=config.planner_provider,
+                    model=self.model,
+                    temperature=0.3
+                )
+                # Restore accumulated knowledge from dict
+                if self.state.raa_accumulated_knowledge:
+                    from ai.ira_builder.agents.planner_2 import AccumulatedKnowledge
+                    # Convert dict back to AccumulatedKnowledge dataclass
+                    self.raa_agent.accumulated_knowledge = AccumulatedKnowledge(**self.state.raa_accumulated_knowledge)
+
+                # Restore the conversation thread from serialized state
+                if self.state.raa_thread_state:
+                    logger.info("Restoring RAA conversation thread from state...")
+                    from agent_framework._threads import AgentThread
+                    self.raa_agent.thread = await AgentThread.deserialize(self.state.raa_thread_state)
+                    logger.info("✅ RAA thread restored - conversation history maintained")
+                else:
+                    logger.warning("No thread state found in workflow state - creating new thread")
+                    self.raa_agent.thread = self.raa_agent.agent.get_new_thread()
+
+            # Process the answer with RAA
+            # Get the previous question and determine which agent asked it
+            # current_question is now JSON, extract just the question text
+            previous_question_json = self.state.current_question
+            try:
+                question_data = json.loads(previous_question_json)
+                previous_question = question_data.get('question', previous_question_json)
+            except (json.JSONDecodeError, TypeError):
+                # If it's not JSON, use as-is
+                previous_question = previous_question_json
+
+            # Determine previous agent type from the current question or analysis result
+            previous_agent_type = "logic"  # Default
+            if self.state.raa_analysis_result:
+                next_agent = self.state.raa_analysis_result.get('next_agent', 'logic_agent')
+                if 'intent' in next_agent:
+                    previous_agent_type = "intent"
+                elif 'data' in next_agent:
+                    previous_agent_type = "data"
+                elif 'logic' in next_agent:
+                    previous_agent_type = "logic"
+
+            logger.info(f"Passing answer to RAA (previous agent: {previous_agent_type})")
+            raa_result = await self.raa_agent.analyze_user_response(
+                user_response=user_input,
+                previous_question=previous_question,
+                previous_state=previous_agent_type
+            )
+
+            # Update state with new RAA analysis
+            self.state.raa_analysis_result = raa_result.to_dict() if hasattr(raa_result, 'to_dict') else raa_result
+            # Convert accumulated_knowledge to dict for JSON serialization
+            if self.raa_agent.accumulated_knowledge:
+                self.state.raa_accumulated_knowledge = asdict(self.raa_agent.accumulated_knowledge)
+            else:
+                self.state.raa_accumulated_knowledge = None
+            # Serialize and store the updated conversation thread
+            if self.raa_agent.thread:
+                logger.info("Serializing updated RAA conversation thread...")
+                raw_thread_state = await self.raa_agent.thread.serialize()
+                self.state.raa_thread_state = convert_thread_state_to_json_serializable(raw_thread_state)
+            else:
+                self.state.raa_thread_state = None
+            self.state.intent_understanding_score = raa_result.intent_understanding.score
+            self.state.data_understanding_score = raa_result.data_understanding.score
+            self.state.business_logic_understanding_score = raa_result.business_logic_understanding.score
+            self.state.overall_completeness = raa_result.overall_completeness
+
+            logger.info(f"📊 Updated Understanding Scores:")
+            logger.info(f"   Intent: {raa_result.intent_understanding.score:.2f}")
+            logger.info(f"   Data: {raa_result.data_understanding.score:.2f}")
+            logger.info(f"   Business Logic: {raa_result.business_logic_understanding.score:.2f}")
+            logger.info(f"   Overall Completeness: {raa_result.overall_completeness:.2f}")
+
+            # Check next action
+            if raa_result.next_action in ["ask_intent_question", "ask_data_question", "ask_logic_question"] and \
+               raa_result.next_agent in ["intent_agent", "data_agent", "logic_agent"]:
+                logger.info(f"🔀 RAA routing to {raa_result.next_agent} for {raa_result.next_action}...")
+
+                # Prepare common data
+                accumulated_knowledge_dict = asdict(self.raa_agent.accumulated_knowledge) if self.raa_agent.accumulated_knowledge else None
+
+                # Route to appropriate agent
+                if raa_result.next_agent == "intent_agent":
+                    # Create Intent Agent if not exists
+                    if not self.intent_agent:
+                        logger.info("Creating Intent Agent...")
+                        self.intent_agent = create_intent_agent(
+                            provider=config.intent_agent_provider,
+                            model=config.intent_agent_model,
+                            temperature=0.3
+                        )
+                        logger.info(f"Intent Agent created with provider: {config.intent_agent_provider}, model: {config.intent_agent_model}")
+
+                    # Generate intent question
+                    logger.info("Drafting user-friendly intent question...")
+                    intent_understanding_dict = asdict(raa_result.intent_understanding)
+
+                    question = await self.intent_agent.generate_question(
+                        intent_understanding=intent_understanding_dict,
+                        context_for_next_agent=raa_result.context_for_next_agent,
+                        accumulated_knowledge=accumulated_knowledge_dict,
+                        suggested_question=raa_result.suggested_question
+                    )
+                    question_type = "INTENT"
+
+                elif raa_result.next_agent == "data_agent":
+                    # Create Data Agent if not exists
+                    if not self.data_agent:
+                        logger.info("Creating Data Agent...")
+                        self.data_agent = create_data_agent(
+                            provider=config.intent_agent_provider,  # Reuse intent agent config
+                            model=config.intent_agent_model,
+                            temperature=0.3
+                        )
+                        logger.info(f"Data Agent created with provider: {config.intent_agent_provider}, model: {config.intent_agent_model}")
+
+                    # Generate data question
+                    logger.info("Drafting user-friendly data question...")
+                    data_understanding_dict = asdict(raa_result.data_understanding)
+
+                    question = await self.data_agent.generate_question(
+                        data_understanding=data_understanding_dict,
+                        context_for_next_agent=raa_result.context_for_next_agent,
+                        accumulated_knowledge=accumulated_knowledge_dict,
+                        suggested_question=raa_result.suggested_question
+                    )
+                    question_type = "DATA"
+
+                elif raa_result.next_agent == "logic_agent":
+                    # Create Logic Agent if not exists
+                    if not self.logic_agent:
+                        logger.info("Creating Logic Agent...")
+                        self.logic_agent = create_logic_agent(
+                            provider=config.intent_agent_provider,  # Reuse intent agent config
+                            model=config.intent_agent_model,
+                            temperature=0.3
+                        )
+                        logger.info(f"Logic Agent created with provider: {config.intent_agent_provider}, model: {config.intent_agent_model}")
+
+                    # Generate logic question
+                    logger.info("Drafting user-friendly logic question...")
+                    logic_understanding_dict = asdict(raa_result.business_logic_understanding)
+
+                    question = await self.logic_agent.generate_question(
+                        business_logic_understanding=logic_understanding_dict,
+                        context_for_next_agent=raa_result.context_for_next_agent,
+                        accumulated_knowledge=accumulated_knowledge_dict,
+                        suggested_question=raa_result.suggested_question
+                    )
+                    question_type = "LOGIC"
+
+                # Store question (common for all agents)
+                self.state.current_intent_question = question.model_dump()
+                self.state.intent_questions_asked += 1
+                # Store as JSON string so frontend can parse it properly
+                self.state.current_question = json.dumps(question.model_dump())
+
+                # Add to conversation history with agent type for Q&A extraction
+                self.state.planner_conversation_history.append({
+                    "role": "assistant",
+                    "content": question.question,
+                    "timestamp": datetime.now().isoformat(),
+                    "question_data": question.model_dump(),
+                    "next_agent": raa_result.next_agent  # Track which agent asked this question
+                })
+
+                # Log the question and options (common for all agents)
+                logger.info("=" * 80)
+                logger.info(f"🎯 {question_type} AGENT QUESTION GENERATED")
+                logger.info("=" * 80)
+                logger.info(f"Question Type: {question.question_type}")
+                logger.info(f"Question: {question.question}")
+                if question.context:
+                    logger.info(f"Context: {question.context}")
+                logger.info(f"\nOptions ({len(question.options)}):")
+                for i, option in enumerate(question.options, 1):
+                    logger.info(f"  {i}. {option}")
+                if question.option_explanations:
+                    logger.info(f"\nOption Explanations:")
+                    for i, explanation in enumerate(question.option_explanations, 1):
+                        logger.info(f"  {i}. {explanation}")
+                logger.info(f"\nReasoning: {question.reasoning}")
+                logger.info("=" * 80)
+
+                # Persist state
+                self._persist_state()
+
+                return {
+                    "status": "success",
+                    "phase": self.state.phase.value,
+                    "next_agent": raa_result.next_agent,  # Return actual agent type
+                    "question": question.model_dump(),
+                    "scores": {
+                        "intent_understanding": self.state.intent_understanding_score,
+                        "data_understanding": self.state.data_understanding_score,
+                        "business_logic_understanding": self.state.business_logic_understanding_score,
+                        "overall_completeness": self.state.overall_completeness
+                    }
+                }
+
+            elif raa_result.next_action == "generate_plan":
+                logger.info("=" * 80)
+                logger.info("✅ RAA DETERMINED SUFFICIENT UNDERSTANDING - GENERATING BUSINESS LOGIC PLAN")
+                logger.info("=" * 80)
+
+                try:
+                    # Step 1: Create Business Logic Plan Generator if not exists
+                    if not self.business_logic_plan_generator:
+                        logger.info("Creating Business Logic Plan Generator...")
+                        self.business_logic_plan_generator = create_business_logic_plan_generator(
+                            provider=config.planner_provider,
+                            model=config.openai_model if config.planner_provider == "openai" else config.groq_model,
+                            temperature=0.3
+                        )
+                        logger.info(f"Business Logic Plan Generator created with provider: {config.planner_provider}")
+
+                    # Step 2: Extract Q&A from Intent/Data/Logic agent conversations
+                    logger.info("Extracting Q&A from agent conversations...")
+                    qa_dict = self._extract_qa_from_raa_conversation()
+
+                    # Step 3: Generate business logic plan
+                    logger.info("Generating business logic plan from RAA accumulated knowledge...")
+                    plan = await self.business_logic_plan_generator.generate_plan(
+                        workflow_name=self.workflow_name,
+                        workflow_description=self.workflow_description,
+                        csv_filepaths=self.csv_filepaths,
+                        accumulated_knowledge=self.raa_agent.accumulated_knowledge.to_dict(),
+                        file_analysis=self.state.file_analysis_results or {},
+                        intent_qa=qa_dict.get("intent_qa", []),
+                        data_qa=qa_dict.get("data_qa", []),
+                        logic_qa=qa_dict.get("logic_qa", [])
+                    )
+
+                    logger.info(f"✅ Business logic plan generated successfully ({len(plan)} characters)")
+
+                    # Step 4: Store plan in state
+                    self.state.business_logic_plan = plan
+
+                    # Step 5: Add plan to conversation history
+                    self.state.planner_conversation_history.append({
+                        "role": "assistant",
+                        "content": plan,
+                        "timestamp": datetime.now().isoformat(),
+                        "is_business_logic_plan": True
+                    })
+
+                    # Step 6: Change phase to PLAN_REVIEW
+                    self._change_phase(WorkflowPhase.PLAN_REVIEW)
+
+                    # Step 7: Persist state
+                    self._persist_state()
+
+                    logger.info("=" * 80)
+                    logger.info("BUSINESS LOGIC PLAN READY FOR REVIEW")
+                    logger.info("=" * 80)
+
+                    return {
+                        "status": "success",
+                        "phase": self.state.phase.value,
+                        "next_action": "plan_ready",
+                        "business_logic_plan": plan,
+                        "scores": {
+                            "intent_understanding": self.state.intent_understanding_score,
+                            "data_understanding": self.state.data_understanding_score,
+                            "business_logic_understanding": self.state.business_logic_understanding_score,
+                            "overall_completeness": self.state.overall_completeness
+                        }
+                    }
+
+                except Exception as plan_error:
+                    logger.error(f"❌ Failed to generate business logic plan: {str(plan_error)}")
+                    logger.error(f"Error details:", exc_info=True)
+
+                    return {
+                        "status": "error",
+                        "phase": self.state.phase.value,
+                        "error": f"Failed to generate business logic plan: {str(plan_error)}",
+                        "scores": {
+                            "intent_understanding": self.state.intent_understanding_score,
+                            "data_understanding": self.state.data_understanding_score,
+                            "business_logic_understanding": self.state.business_logic_understanding_score,
+                            "overall_completeness": self.state.overall_completeness
+                        }
+                    }
+
+            elif raa_result.next_action == "clarify_previous":
+                # RAA determined that previous answer was unclear/vague and needs clarification
+                logger.info("=" * 80)
+                logger.info("🔄 RAA REQUESTING CLARIFICATION OF PREVIOUS ANSWER")
+                logger.info("=" * 80)
+                logger.info(f"Reason: {raa_result.reasoning}")
+                logger.info(f"Will ask clarifying question via {raa_result.next_agent}")
+
+                # Generate a clarifying question using the same agent that asked originally
+                if raa_result.next_agent == "intent_agent":
+                    # Create Intent Agent if not exists
+                    if not self.intent_agent:
+                        logger.info("Creating Intent Agent...")
+                        self.intent_agent = create_intent_agent(
+                            provider=config.intent_agent_provider,
+                            model=config.intent_agent_model,
+                            temperature=0.3
+                        )
+                        logger.info(f"Intent Agent created with provider: {config.intent_agent_provider}, model: {config.intent_agent_model}")
+
+                    # Generate clarifying intent question
+                    logger.info("Drafting clarifying intent question...")
+                    intent_understanding_dict = asdict(raa_result.intent_understanding)
+                    accumulated_knowledge_dict = self.raa_agent.accumulated_knowledge.to_dict()
+
+                    question = await self.intent_agent.generate_question(
+                        intent_understanding=intent_understanding_dict,
+                        context_for_next_agent=raa_result.context_for_next_agent,
+                        accumulated_knowledge=accumulated_knowledge_dict,
+                        suggested_question=raa_result.suggested_question
+                    )
+                    question_type = "INTENT CLARIFICATION"
+
+                elif raa_result.next_agent == "data_agent":
+                    # Create Data Agent if not exists
+                    if not self.data_agent:
+                        logger.info("Creating Data Agent...")
+                        self.data_agent = create_data_agent(
+                            provider=config.intent_agent_provider,
+                            model=config.intent_agent_model,
+                            temperature=0.3
+                        )
+                        logger.info(f"Data Agent created with provider: {config.intent_agent_provider}, model: {config.intent_agent_model}")
+
+                    # Generate clarifying data question
+                    logger.info("Drafting clarifying data question...")
+                    data_understanding_dict = asdict(raa_result.data_understanding)
+                    accumulated_knowledge_dict = self.raa_agent.accumulated_knowledge.to_dict()
+
+                    question = await self.data_agent.generate_question(
+                        data_understanding=data_understanding_dict,
+                        context_for_next_agent=raa_result.context_for_next_agent,
+                        accumulated_knowledge=accumulated_knowledge_dict,
+                        suggested_question=raa_result.suggested_question
+                    )
+                    question_type = "DATA CLARIFICATION"
+
+                elif raa_result.next_agent == "logic_agent":
+                    # Create Logic Agent if not exists
+                    if not self.logic_agent:
+                        logger.info("Creating Logic Agent...")
+                        self.logic_agent = create_logic_agent(
+                            provider=config.intent_agent_provider,
+                            model=config.intent_agent_model,
+                            temperature=0.3
+                        )
+                        logger.info(f"Logic Agent created with provider: {config.intent_agent_provider}, model: {config.intent_agent_model}")
+
+                    # Generate clarifying logic question
+                    logger.info("Drafting clarifying logic question...")
+                    logic_understanding_dict = asdict(raa_result.business_logic_understanding)
+                    accumulated_knowledge_dict = self.raa_agent.accumulated_knowledge.to_dict()
+
+                    question = await self.logic_agent.generate_question(
+                        business_logic_understanding=logic_understanding_dict,
+                        context_for_next_agent=raa_result.context_for_next_agent,
+                        accumulated_knowledge=accumulated_knowledge_dict,
+                        suggested_question=raa_result.suggested_question
+                    )
+                    question_type = "LOGIC CLARIFICATION"
+                else:
+                    logger.error(f"Unknown agent type for clarification: {raa_result.next_agent}")
+                    return {
+                        "status": "error",
+                        "error": f"Unknown agent type: {raa_result.next_agent}"
+                    }
+
+                # Store question
+                self.state.current_intent_question = question.model_dump()
+                self.state.intent_questions_asked += 1
+                self.state.current_question = json.dumps(question.model_dump())
+
+                # Add to conversation history
+                self.state.planner_conversation_history.append({
+                    "role": "assistant",
+                    "content": question.question,
+                    "timestamp": datetime.now().isoformat(),
+                    "question_data": question.model_dump(),
+                    "next_agent": raa_result.next_agent,
+                    "is_clarification": True  # Mark as clarification question
+                })
+
+                # Log the question
+                logger.info("=" * 80)
+                logger.info(f"🎯 {question_type} QUESTION GENERATED")
+                logger.info("=" * 80)
+                logger.info(f"Question Type: {question.question_type}")
+                logger.info(f"Question: {question.question}")
+                if question.context:
+                    logger.info(f"Context: {question.context}")
+                logger.info(f"\nOptions ({len(question.options)}):")
+                for i, option in enumerate(question.options, 1):
+                    logger.info(f"  {i}. {option}")
+                logger.info(f"\nReasoning: {question.reasoning}")
+                logger.info("=" * 80)
+
+                # Persist state
+                self._persist_state()
+
+                return {
+                    "status": "success",
+                    "phase": self.state.phase.value,
+                    "next_agent": raa_result.next_agent,
+                    "next_action": "clarify_previous",
+                    "question": question.model_dump(),
+                    "scores": {
+                        "intent_understanding": self.state.intent_understanding_score,
+                        "data_understanding": self.state.data_understanding_score,
+                        "business_logic_understanding": self.state.business_logic_understanding_score,
+                        "overall_completeness": self.state.overall_completeness
+                    }
+                }
+
+            else:
+                # Handle other unknown actions
+                logger.warning(f"⚠️ Unknown RAA next action: {raa_result.next_action}, next agent: {raa_result.next_agent}")
+
+                self._persist_state()
+
+                return {
+                    "status": "success",
+                    "phase": self.state.phase.value,
+                    "next_action": raa_result.next_action,
+                    "next_agent": raa_result.next_agent,
+                    "message": raa_result.reasoning,
+                    "scores": {
+                        "intent_understanding": self.state.intent_understanding_score,
+                        "data_understanding": self.state.data_understanding_score,
+                        "business_logic_understanding": self.state.business_logic_understanding_score,
+                        "overall_completeness": self.state.overall_completeness
+                    }
+                }
+
+        except Exception as e:
+            logger.error(f"Error processing user input with RAA: {str(e)}", exc_info=True)
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+
     async def approve_plan_and_generate_code(self) -> Dict[str, Any]:
         """
         Approve the business logic plan and proceed to code generation.
@@ -2156,6 +3018,101 @@ Generate the complete, updated code now."""
             formatted_items.append(f"{i}. {requirement}")
 
         return "\n".join(formatted_items)
+
+    def _extract_qa_from_raa_conversation(self) -> Dict[str, List[Dict[str, str]]]:
+        """
+        Extract Q&A pairs from RAA conversation history (Intent/Data/Logic agents).
+
+        This method parses the conversation history to extract questions asked by
+        Intent, Data, and Logic agents along with user answers.
+
+        Returns:
+            Dictionary with 'intent_qa', 'data_qa', 'logic_qa' lists
+            Each Q&A dict has 'question' and 'answer' keys
+
+        Example:
+            >>> qa_dict = orchestrator._extract_qa_from_raa_conversation()
+            >>> intent_qa = qa_dict['intent_qa']
+            >>> # [{"question": "What defines success?", "answer": "..."}]
+        """
+        logger.info("Extracting Q&A pairs from RAA conversation history")
+
+        intent_qa = []
+        data_qa = []
+        logic_qa = []
+
+        try:
+            # Parse conversation history from state
+            conversation_history = self.state.planner_conversation_history
+
+            current_question = None
+            current_agent_type = None
+
+            for i, msg in enumerate(conversation_history):
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+
+                # Check if this message contains a question from an agent
+                if role == "assistant":
+                    # Check if it's a question (has question_data with question field)
+                    question_data = msg.get("question_data", {})
+
+                    if question_data and "question" in question_data:
+                        # This is a question from an agent
+                        question_text = question_data.get("question", "")
+
+                        # Determine which agent asked (from previous messages or context)
+                        # Look for agent type in the conversation context
+                        # Check if we stored next_agent in the message
+                        if "next_agent" in msg:
+                            agent_type = msg.get("next_agent")
+                        else:
+                            # Try to infer from question content or position
+                            # For now, we'll track based on the order agents were called
+                            # This will be populated from the next_agent field we return
+                            agent_type = "unknown"
+
+                        current_question = question_text
+                        current_agent_type = agent_type
+
+                # Check if this is a user answer
+                elif role == "user" and current_question:
+                    # This is the user's answer to the current question
+                    answer_text = content
+
+                    # Store Q&A pair in appropriate list
+                    qa_pair = {
+                        "question": current_question,
+                        "answer": answer_text
+                    }
+
+                    if current_agent_type == "intent_agent":
+                        intent_qa.append(qa_pair)
+                    elif current_agent_type == "data_agent":
+                        data_qa.append(qa_pair)
+                    elif current_agent_type == "logic_agent":
+                        logic_qa.append(qa_pair)
+                    else:
+                        # If agent type unknown, try to infer from question content
+                        # For now, add to intent as fallback
+                        intent_qa.append(qa_pair)
+
+                    # Reset for next Q&A
+                    current_question = None
+                    current_agent_type = None
+
+            logger.info(f"Extracted Q&A: Intent={len(intent_qa)}, Data={len(data_qa)}, Logic={len(logic_qa)}")
+
+        except Exception as e:
+            logger.error(f"Error extracting Q&A from conversation: {str(e)}")
+            # Return empty lists on error
+            pass
+
+        return {
+            "intent_qa": intent_qa,
+            "data_qa": data_qa,
+            "logic_qa": logic_qa
+        }
 
     def _change_phase(self, new_phase: WorkflowPhase):
         """Change workflow phase and trigger callback."""

@@ -10,9 +10,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { PhaseIndicator } from "@/components/workflow/PhaseIndicator";
-import { submitAnswer, getWorkflowStatus } from "@/lib/api/client";
+import { UnderstandingMeter } from "@/components/workflow/UnderstandingMeter";
+import { submitAnswerWithRAA, getWorkflowStatus } from "@/lib/api/client";
 import { useWorkflowWebSocket } from "@/hooks/useWorkflowWebSocket";
-import type { QuestionResponse } from "@/lib/api/types";
+import type { QuestionResponse, UnderstandingScores } from "@/lib/api/types";
 
 interface Message {
   role: "assistant" | "user";
@@ -39,6 +40,7 @@ export default function ConversationPage() {
   const [currentPhase, setCurrentPhase] = useState<string>("planning");
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [copiedCurrent, setCopiedCurrent] = useState(false);
+  const [understandingScores, setUnderstandingScores] = useState<UnderstandingScores | null>(null);
 
   // WebSocket connection (TEMPORARILY DISABLED - uncomment when backend is ready)
   const isConnected = false;
@@ -266,6 +268,11 @@ export default function ConversationPage() {
     ? `${parsedQuestion.context}\n\n${parsedQuestion.question}`
     : parsedQuestion.question;
 
+  // Debug: Log understanding scores state changes
+  useEffect(() => {
+    console.log("🔄 Understanding scores state changed:", understandingScores);
+  }, [understandingScores]);
+
   // Load workflow and initial question
   useEffect(() => {
     const loadWorkflow = async () => {
@@ -289,6 +296,19 @@ export default function ConversationPage() {
         setMessages([]);
 
         setQuestionNumber(workflowStatus.planner_questions_asked || 0);
+
+        // Load initial understanding scores if available
+        console.log("=== UNDERSTANDING SCORES FROM API ===");
+        console.log("Full workflow status:", workflowStatus);
+        console.log("Understanding scores:", workflowStatus.understanding_scores);
+        console.log("====================================");
+
+        if (workflowStatus.understanding_scores) {
+          console.log("✅ Setting understanding scores:", workflowStatus.understanding_scores);
+          setUnderstandingScores(workflowStatus.understanding_scores);
+        } else {
+          console.log("❌ No understanding scores in API response");
+        }
       } catch (err: any) {
         console.error("Error loading workflow:", err);
         setError("Failed to load workflow. Please try again.");
@@ -345,26 +365,48 @@ export default function ConversationPage() {
       setIsSubmitting(true);
       setIsAIThinking(true);
 
-      // Submit answer to backend (WebSocket will handle the response)
-      const response: QuestionResponse = await submitAnswer(
+      // Submit answer to backend with RAA (new flow)
+      const response = await submitAnswerWithRAA(
         workflowId,
-        answer,
-        questionNumber + 1
+        answer
       );
 
-      // If WebSocket is not connected, handle response directly
-      if (!isConnected) {
-        setIsAIThinking(false);
+      // Handle response directly
+      setIsAIThinking(false);
 
-        // Check if we got a business logic plan
-        if (response.response_type === "business_logic_plan") {
-          router.push(`/workflow/${workflowId}/plan`);
-          return;
-        }
+      // Update understanding scores if provided
+      console.log("=== ANSWER RESPONSE ===");
+      console.log("Response scores:", response.scores);
+      console.log("======================");
 
-        // Update to the new current question (shown in the Current Question card)
-        console.log("Setting new current question:", response.response);
-        setCurrentQuestion(response.response);
+      if (response.scores) {
+        console.log("✅ Updating understanding scores after answer:", response.scores);
+        setUnderstandingScores(response.scores);
+      } else {
+        console.log("❌ No scores in answer response");
+      }
+
+      // Check if plan is ready
+      if (response.next_action === "plan_ready") {
+        router.push(`/workflow/${workflowId}/plan`);
+        return;
+      }
+
+      // If we got a new question, update the current question
+      if (response.question) {
+        // Format the question as JSON string so parseQuestion can extract it properly
+        const questionObject = {
+          question_type: response.question.question_type || "multiple_choice",
+          context: response.question.context || "",
+          question: response.question.question || "",
+          options: response.question.options || [],
+          option_explanations: response.question.option_explanations || [],
+          reasoning: response.question.reasoning || ""
+        };
+
+        const questionText = JSON.stringify(questionObject);
+        console.log("Setting new current question:", questionText);
+        setCurrentQuestion(questionText);
       }
 
       // Scroll to bottom
@@ -403,14 +445,16 @@ export default function ConversationPage() {
         </div>
       </header>
 
-      <div className="container mx-auto px-6 py-8 max-w-4xl">
+      <div className="container mx-auto px-6 py-8">
         {/* Phase Indicator */}
         <div className="mb-8">
           <PhaseIndicator currentPhase="conversation" />
         </div>
 
-        {/* Main Content */}
-        <div className="space-y-6">
+        {/* Two Column Layout: Conversation + Understanding Meter Sidebar */}
+        <div className="flex gap-6 items-start">
+          {/* Main Conversation Column */}
+          <div className="flex-1 max-w-4xl space-y-6">
           {/* Hero Section */}
           <div className="text-center space-y-2">
             <h1 className="text-4xl font-bold tracking-tight">
@@ -535,8 +579,15 @@ export default function ConversationPage() {
                           )}
                         </Button>
                       </div>
-                      <div className="text-gray-900 dark:text-gray-100 text-sm whitespace-pre-wrap leading-relaxed font-semibold px-4 py-3 rounded-2xl rounded-tl-sm" style={{ backgroundColor: '#E5E5EA' }}>
-                        {questionText}
+                      <div className="text-gray-900 dark:text-gray-100 text-sm whitespace-pre-wrap leading-relaxed px-4 py-3 rounded-2xl rounded-tl-sm" style={{ backgroundColor: '#E5E5EA' }}>
+                        {parsedQuestion.context && (
+                          <div className="mb-3 text-gray-700 dark:text-gray-300">
+                            {parsedQuestion.context}
+                          </div>
+                        )}
+                        <div className="font-bold">
+                          {parsedQuestion.question}
+                        </div>
                       </div>
 
                       {/* Answer Form */}
@@ -644,6 +695,14 @@ export default function ConversationPage() {
               </div>
             </CardContent>
           </Card>
+          </div>
+
+          {/* Understanding Meter Sidebar - Sticky Container */}
+          {understandingScores && (
+            <div className="w-80 flex-shrink-0 sticky top-20">
+              <UnderstandingMeter scores={understandingScores} />
+            </div>
+          )}
         </div>
       </div>
     </div>

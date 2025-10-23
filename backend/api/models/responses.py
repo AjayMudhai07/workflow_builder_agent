@@ -386,6 +386,7 @@ class WorkflowDetailResponse(BaseModel):
     csv_filepaths: List[str] = Field(..., description="Paths to CSV files")
     planner_questions_asked: int = Field(..., description="Number of questions asked by planner")
     current_question: Optional[str] = Field(None, description="Current question from planner")
+    understanding_scores: Optional[Dict[str, float]] = Field(None, description="RAA understanding scores (intent, data, logic, overall)")
     business_logic_plan: Optional[str] = Field(None, description="Business logic plan")
     plan_approved: bool = Field(..., description="Whether plan is approved")
     generated_code: Optional[str] = Field(None, description="Generated code")

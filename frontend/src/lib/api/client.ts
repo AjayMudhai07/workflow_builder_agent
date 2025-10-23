@@ -120,6 +120,53 @@ export async function createWorkflow(
   return response.json();
 }
 
+// RAA Flow (New V2) - Recommended
+export interface RAAQuestionResponse {
+  status: string;
+  phase: string;
+  next_agent?: string;
+  next_action?: string;
+  question?: {
+    question_type: string;
+    context: string;
+    question: string;
+    options: string[];
+    option_explanations?: string[];
+    reasoning: string;
+  };
+  scores?: {
+    intent_understanding: number;
+    data_understanding: number;
+    business_logic_understanding: number;
+    overall_completeness: number;
+  };
+  plan?: string;
+  message?: string;
+}
+
+export async function startWorkflowWithRAA(
+  workflowId: string
+): Promise<RAAQuestionResponse> {
+  return fetchAPI<RAAQuestionResponse>(`/api/v1/workflows/${workflowId}/start-raa`, {
+    method: "POST",
+  });
+}
+
+export async function submitAnswerWithRAA(
+  workflowId: string,
+  answer: string,
+  additionalNotes?: string
+): Promise<RAAQuestionResponse> {
+  return fetchAPI<RAAQuestionResponse>(`/api/v1/workflows/${workflowId}/answer-raa`, {
+    method: "POST",
+    body: JSON.stringify({
+      answer,
+      additional_notes: additionalNotes
+    }),
+  });
+}
+
+// Legacy Planner Flow (V1) - Deprecated, use RAA flow above
 export async function startWorkflow(
   workflowId: string
 ): Promise<QuestionResponse> {

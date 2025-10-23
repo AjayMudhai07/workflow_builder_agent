@@ -31,6 +31,13 @@ export interface WorkflowResponse {
   message?: string;
 }
 
+export interface UnderstandingScores {
+  intent_understanding: number;
+  data_understanding: number;
+  business_logic_understanding: number;
+  overall_completeness: number;
+}
+
 export interface WorkflowState {
   workflow_id: string;
   workflow_name: string;
@@ -40,6 +47,7 @@ export interface WorkflowState {
   completed_at: string | null;
   planner_questions_asked: number;
   current_question: string | null;
+  understanding_scores?: UnderstandingScores | null;
   business_logic_plan: string | null;
   plan_approved: boolean;
   generated_code: string | null;

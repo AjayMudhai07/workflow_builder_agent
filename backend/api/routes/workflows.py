@@ -157,6 +157,104 @@ async def start_workflow(workflow_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to start workflow: {str(e)}")
 
 
+@router.post("/workflows/{workflow_id}/start-raa")
+async def start_workflow_with_raa(workflow_id: str):
+    """
+    Start a workflow using RAA (Requirements Analysis Agent) flow - V2.
+
+    This endpoint:
+    1. Analyzes CSV files with DatasetAnalyzer (LLM-powered)
+    2. Runs RAA for 3-dimensional requirements analysis
+    3. If needed, routes to Intent Agent for question drafting
+    4. Returns first question with understanding scores
+
+    Returns:
+        - question: User-friendly multiple-choice question (if next_agent == "intent_agent")
+        - scores: Intent, Data, Business Logic understanding scores
+        - next_agent: Which agent should handle next step
+    """
+    try:
+        manager = get_workflow_manager()
+        orchestrator = await manager.get_orchestrator(workflow_id)
+
+        if not orchestrator:
+            raise HTTPException(status_code=404, detail=f"Workflow not found: {workflow_id}")
+
+        # Start with RAA flow
+        result = await orchestrator.start_with_raa()
+
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to start workflow with RAA"))
+
+        return {
+            "status": "success",
+            "phase": result["phase"],
+            "next_agent": result.get("next_agent"),
+            "question": result.get("question"),
+            "scores": result.get("scores"),
+            "message": result.get("message"),
+            "next_action": result.get("next_action")
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error starting workflow with RAA: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to start workflow with RAA: {str(e)}")
+
+
+@router.post("/workflows/{workflow_id}/answer-raa")
+async def submit_answer_with_raa(workflow_id: str, request: AnswerSubmitRequest):
+    """
+    Submit an answer when using RAA flow - V2.
+
+    This endpoint:
+    1. Passes user's answer to RAA for processing
+    2. RAA updates understanding and re-analyzes
+    3. If more clarification needed, routes to Intent Agent
+    4. Returns next question OR plan completion
+
+    Returns:
+        - question: Next question (if more clarification needed)
+        - scores: Updated understanding scores
+        - plan: Business logic plan (if requirements complete)
+    """
+    try:
+        manager = get_workflow_manager()
+        orchestrator = await manager.get_orchestrator(workflow_id)
+
+        if not orchestrator:
+            raise HTTPException(status_code=404, detail=f"Workflow not found: {workflow_id}")
+
+        # Combine answer with additional notes if provided
+        user_input = request.answer
+        if request.additional_notes:
+            user_input += f"\n\nAdditional notes: {request.additional_notes}"
+
+        # Process with RAA flow
+        result = await orchestrator.process_user_input_with_raa(user_input)
+
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to process answer"))
+
+        return {
+            "status": "success",
+            "phase": result["phase"],
+            "next_agent": result.get("next_agent"),
+            "next_action": result.get("next_action"),
+            "question": result.get("question"),
+            "plan": result.get("plan"),
+            "scores": result.get("scores"),
+            "message": result.get("message")
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing answer with RAA: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to process answer: {str(e)}")
+
+
 @router.post("/workflows/{workflow_id}/answer", response_model=QuestionResponse)
 async def submit_answer(workflow_id: str, request: AnswerSubmitRequest):
     """
@@ -787,6 +885,17 @@ async def get_workflow_detail(workflow_id: str):
         if not detail:
             raise HTTPException(status_code=404, detail=f"Workflow not found: {workflow_id}")
 
+        # Get understanding scores from orchestrator if available
+        orchestrator = await manager.get_orchestrator(workflow_id)
+        understanding_scores = None
+        if orchestrator and detail["phase"] == "planning":
+            understanding_scores = {
+                "intent_understanding": orchestrator.state.intent_understanding_score,
+                "data_understanding": orchestrator.state.data_understanding_score,
+                "business_logic_understanding": orchestrator.state.business_logic_understanding_score,
+                "overall_completeness": orchestrator.state.overall_completeness
+            }
+
         return WorkflowDetailResponse(
             workflow_id=workflow_id,
             workflow_name=detail["workflow_name"],
@@ -797,6 +906,7 @@ async def get_workflow_detail(workflow_id: str):
             csv_filepaths=detail.get("planner_summary", {}).get("csv_files", []),
             planner_questions_asked=detail.get("planner_summary", {}).get("questions_asked", 0),
             current_question=detail.get("current_question"),
+            understanding_scores=understanding_scores,
             business_logic_plan=detail.get("planner_summary", {}).get("business_logic_plan"),
             plan_approved=detail.get("planner_summary", {}).get("plan_approved", False),
             generated_code=detail.get("coder_summary", {}).get("generated_code"),
