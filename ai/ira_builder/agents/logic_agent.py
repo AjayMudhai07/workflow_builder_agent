@@ -621,9 +621,23 @@ class LogicAgent:
         if user_goal:
             business_context_parts.append(f"Goal: {user_goal}")
         if filtering_rules:
-            business_context_parts.append(f"Known rules: {', '.join(filtering_rules[:3])}")
+            # Convert filtering_rules to strings (handle both str and dict)
+            rules_str = []
+            for rule in filtering_rules[:3]:
+                if isinstance(rule, dict):
+                    rules_str.append(str(rule))
+                else:
+                    rules_str.append(str(rule))
+            business_context_parts.append(f"Known rules: {', '.join(rules_str)}")
         if calculations:
-            business_context_parts.append(f"Known calculations: {', '.join(calculations[:3])}")
+            # Convert calculations to strings (handle both str and dict)
+            calc_str = []
+            for calc in calculations[:3]:
+                if isinstance(calc, dict):
+                    calc_str.append(str(calc))
+                else:
+                    calc_str.append(str(calc))
+            business_context_parts.append(f"Known calculations: {', '.join(calc_str)}")
 
         business_context = " | ".join(business_context_parts) if business_context_parts else "No business rules defined yet"
 
