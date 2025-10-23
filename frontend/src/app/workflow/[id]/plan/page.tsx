@@ -60,7 +60,7 @@ export default function PlanReviewPage() {
       console.error("Error loading plan:", err);
 
       // Check if it's a 404 error (plan not generated yet)
-      if (err.message && err.message.includes("404")) {
+      if (err.status === 404 || (err.message && err.message.includes("404")) || (err.message && err.message.includes("not generated yet"))) {
         setError("The business logic plan hasn't been generated yet. Please complete the planning conversation first.");
         // Redirect back to conversation after 3 seconds
         setTimeout(() => {
