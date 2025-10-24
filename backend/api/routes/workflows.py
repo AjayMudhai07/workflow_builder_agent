@@ -994,15 +994,14 @@ async def get_output_preview(workflow_id: str, rows: int = 10):
         # Replace NaN values with None (which becomes null in JSON)
         df = df.replace({np.nan: None})
 
-        # Skip row counting for performance (can take 10+ seconds on large files)
-        # Return "N/A" to match validation behavior
-        total_rows = "N/A"
+        # Get total row count
+        total_rows = sum(1 for _ in open(output_path)) - 1  # Subtract header
 
         # Convert to response format
         preview_data = {
             "columns": df.columns.tolist(),
             "rows": df.to_dict(orient="records"),
-            "total_rows": total_rows  # Always "N/A" for speed
+            "total_rows": total_rows
         }
 
         return preview_data
