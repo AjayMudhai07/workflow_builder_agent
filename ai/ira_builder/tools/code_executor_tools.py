@@ -432,17 +432,18 @@ def validate_output_dataframe(filepath: str, timeout_seconds: int = 10) -> Dict[
     """
     Validate that output CSV was created and is valid.
 
-    This is used to verify that code execution succeeded in creating output.
+    Fast validation: Just checks file exists and reads columns.
+    Skips row counting entirely for speed (can take 10+ seconds on large files).
 
     Args:
         filepath: Path to expected output CSV file
-        timeout_seconds: Maximum time to spend counting rows (default: 10s)
+        timeout_seconds: Unused (kept for backward compatibility)
 
     Returns:
         Dictionary with:
             - valid: Boolean indicating if file exists and is valid
             - error: Error message if invalid (None if valid)
-            - row_count: Number of rows in dataframe (or "Not Calculated" if too large)
+            - row_count: Always "N/A" (skip counting for speed)
             - column_count: Number of columns in dataframe
             - columns: List of column names
             - file_size_mb: File size in megabytes
@@ -450,19 +451,19 @@ def validate_output_dataframe(filepath: str, timeout_seconds: int = 10) -> Dict[
     Example:
         >>> result = validate_output_dataframe("output.csv")
         >>> if result['valid']:
-        ...     print(f"Output has {result['row_count']} rows")
+        ...     print(f"Output validated")
     """
-    logger.debug(f"Validating output dataframe: {filepath}")
+    logger.debug(f"Fast validation (file exists check): {filepath}")
 
     path = Path(filepath)
 
-    # Check if file exists
+    # Check if file exists using os library (super fast)
     if not path.exists():
         logger.warning(f"Output file not found: {filepath}")
         return {
             "valid": False,
             "error": "Output file was not created",
-            "row_count": 0,
+            "row_count": "N/A",
             "column_count": 0,
             "columns": [],
             "file_size_mb": 0.0
@@ -491,55 +492,26 @@ def validate_output_dataframe(filepath: str, timeout_seconds: int = 10) -> Dict[
             "file_size_mb": round(file_size / (1024 * 1024), 2)
         }
 
-    # Try to read and validate the CSV
+    # Try to read and validate the CSV (FAST: no row counting!)
     try:
         from ai.ira_builder.tools.csv_tools import read_csv_with_encoding
 
-        # For large files, only read headers and use file operations for row count
+        # Get file size
         file_size = path.stat().st_size
         file_size_mb = round(file_size / (1024 * 1024), 2)
 
-        # Read only first few rows to get column info (much faster for large files)
+        # ONLY read first 5 rows to get column info (super fast!)
         df_sample = read_csv_with_encoding(filepath, nrows=5)
         columns = df_sample.columns.tolist()
         column_count = len(columns)
 
-        # For row count, use timeout-protected counting (max 10 seconds)
-        # For very large files, we'll skip counting and just validate file exists
-        row_count = _count_csv_rows_with_timeout(filepath, timeout_seconds=timeout_seconds)
-
-        # If row counting timed out (file too large), use fallback
-        if row_count == -1:
-            logger.warning(f"Row counting timed out for large file ({file_size_mb} MB). Using fallback.")
-            return {
-                "valid": True,  # File exists and has columns, so it's valid
-                "error": None,
-                "warning": f"File too large to count rows ({file_size_mb} MB). Row count not calculated.",
-                "row_count": "Not Calculated (Data too large)",  # Fallback value for frontend
-                "column_count": column_count,
-                "columns": columns,
-                "file_size_mb": file_size_mb,
-                "timeout": True  # Indicate timeout occurred
-            }
-
-        # Check if dataframe is empty - this is VALID for filter/search operations
-        if row_count == 0:
-            logger.info(f"Output dataframe is empty (0 rows) - this is valid for filter/search operations: {filepath}")
-            return {
-                "valid": True,  # Empty results are valid (e.g., no duplicates found, no matches, etc.)
-                "error": None,
-                "warning": "Output contains 0 rows - this may indicate no matches found (valid result)",
-                "row_count": 0,
-                "column_count": column_count,
-                "columns": columns,
-                "file_size_mb": file_size_mb
-            }
-
-        logger.info(f"Output validated: {row_count} rows, {column_count} columns ({file_size_mb} MB)")
+        # SKIP row counting entirely - just use "N/A"
+        # This makes validation instant (< 1 second) even for huge files
+        logger.info(f"✓ Output validated: {column_count} columns, {file_size_mb} MB (row count: N/A)")
         return {
             "valid": True,
             "error": None,
-            "row_count": row_count,
+            "row_count": "N/A",  # Skip counting for speed
             "column_count": column_count,
             "columns": columns,
             "file_size_mb": file_size_mb
@@ -745,7 +717,7 @@ def get_dataframe_summary(filepath: str, total_row_count: int = None) -> Dict[st
 
         # Use pre-computed row count if provided (avoids slow re-counting for large files)
         if total_row_count is not None:
-            # Handle string row_count (from timeout fallback)
+            # Handle string row_count (from validation fallback - "N/A")
             if isinstance(total_row_count, str):
                 total_rows = total_row_count  # Keep as string for display
                 sampled = True  # Assume large file if row count is string
@@ -755,16 +727,10 @@ def get_dataframe_summary(filepath: str, total_row_count: int = None) -> Dict[st
                 sampled = total_rows > sample_size
                 logger.debug(f"Using pre-computed row count: {total_rows}")
         else:
-            # Get accurate row count efficiently with timeout
-            row_count = _count_csv_rows_with_timeout(filepath, timeout_seconds=10)
-            if row_count == -1:
-                total_rows = "Not Calculated (Data too large)"
-                sampled = True
-                logger.debug("Row counting timed out")
-            else:
-                total_rows = row_count
-                sampled = total_rows > sample_size
-                logger.debug(f"Counted rows: {total_rows}")
+            # No row count provided - skip counting for speed, use "N/A"
+            total_rows = "N/A"
+            sampled = True
+            logger.debug("No row count provided - using N/A for speed")
 
         # Basic info
         summary = {

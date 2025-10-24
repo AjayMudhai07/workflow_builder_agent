@@ -693,8 +693,8 @@ class CoderAgent:
                             logger.info(f"✓ Output file validated: {row_count} rows")
 
                         # Get preview and summary
-                        # Pass row_count to avoid re-counting (3x speedup for large files)
-                        # row_count may be "Not Calculated (Data too large)" for very large files
+                        # Pass row_count to avoid re-counting (instant validation)
+                        # row_count is always "N/A" (skip counting for speed on all files)
                         preview = preview_dataframe(self.memory.output_path, rows=10, total_row_count=row_count)
                         summary = get_dataframe_summary(self.memory.output_path, total_row_count=row_count)
 
