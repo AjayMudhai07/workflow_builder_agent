@@ -74,10 +74,14 @@ async def create_workflow(
                     detail=f"Invalid file type: {file.filename}. Only .csv and .xlsx files are accepted"
                 )
 
-        # Save uploaded files temporarily
+        # Save uploaded files temporarily with unique names to avoid collisions
+        import uuid
         temp_files = []
         for file in files:
-            temp_path = Path(f"/tmp/{file.filename}")
+            # Add unique identifier to prevent filename collisions
+            unique_id = str(uuid.uuid4())[:8]
+            safe_filename = f"{unique_id}_{file.filename}"
+            temp_path = Path(f"/tmp/{safe_filename}")
             with open(temp_path, "wb") as f:
                 content = await file.read()
                 f.write(content)
@@ -109,8 +113,22 @@ async def create_workflow(
         )
 
     except HTTPException:
+        # Clean up temp files on HTTP exceptions
+        for temp_file in temp_files:
+            try:
+                if temp_file.exists():
+                    temp_file.unlink()
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to cleanup temp file {temp_file}: {cleanup_error}")
         raise
     except Exception as e:
+        # Clean up temp files on any exception
+        for temp_file in temp_files:
+            try:
+                if temp_file.exists():
+                    temp_file.unlink()
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to cleanup temp file {temp_file}: {cleanup_error}")
         logger.error(f"Error creating workflow: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to create workflow: {str(e)}")
 

@@ -120,7 +120,26 @@ class WorkflowManager:
             # Move uploaded files to workflow directory
             csv_filepaths = []
             for csv_file in csv_files:
-                destination = workflow_upload_dir / csv_file.name
+                # Extract original filename, removing any UUID prefix
+                original_name = csv_file.name
+                if '_' in original_name and len(original_name.split('_')[0]) == 8:
+                    # Remove UUID prefix (format: "12345678_filename.csv")
+                    parts = original_name.split('_', 1)
+                    if len(parts) == 2:
+                        original_name = parts[1]
+
+                destination = workflow_upload_dir / original_name
+
+                # Handle duplicate filenames by adding counter
+                counter = 1
+                while destination.exists():
+                    name_parts = original_name.rsplit('.', 1)
+                    if len(name_parts) == 2:
+                        destination = workflow_upload_dir / f"{name_parts[0]}_{counter}.{name_parts[1]}"
+                    else:
+                        destination = workflow_upload_dir / f"{original_name}_{counter}"
+                    counter += 1
+
                 # Copy file to workflow directory
                 import shutil
                 shutil.copy(str(csv_file), str(destination))
