@@ -66,9 +66,6 @@ async def create_workflow(
         if not files or len(files) == 0:
             raise HTTPException(status_code=400, detail="At least one CSV file is required")
 
-        if len(files) > 5:
-            raise HTTPException(status_code=400, detail="Maximum 5 files allowed")
-
         # Validate file types
         for file in files:
             if not file.filename.endswith(('.csv', '.xlsx')):
