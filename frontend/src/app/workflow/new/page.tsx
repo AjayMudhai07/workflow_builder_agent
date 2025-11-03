@@ -180,7 +180,6 @@ export default function NewWorkflowPage() {
               </CardHeader>
               <CardContent>
                 <FileUploader
-                  maxFiles={5}
                   maxSizeMB={100}
                   acceptedTypes={[".csv", ".xlsx"]}
                   onFilesChange={(files) => {

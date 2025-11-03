@@ -25,7 +25,7 @@ interface FileUploaderProps {
 }
 
 export function FileUploader({
-  maxFiles = 5,
+  maxFiles = Infinity,
   maxSizeMB = 100,
   acceptedTypes = [".csv", ".xlsx"],
   onFilesChange,
