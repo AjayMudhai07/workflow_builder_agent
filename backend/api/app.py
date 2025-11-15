@@ -36,6 +36,20 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 80)
     logger.info(f"Environment: {config.environment}")
 
+    try:
+        from agent_framework.observability import setup_observability
+
+        setup_observability(
+            enable_sensitive_data=config.environment == "development",  # Only in dev
+            otlp_endpoint=config.otlp_endpoint if hasattr(config, 'otlp_endpoint') else None,
+        )
+        logger.info("✅ OpenTelemetry observability enabled")
+        logger.info(f"   OTLP Endpoint: {getattr(config, 'otlp_endpoint', 'console (default)')}")
+        logger.info(f"   Sensitive Data: {config.environment == 'development'}")
+    except ImportError as e:
+        logger.warning(f"⚠️  OpenTelemetry not available: {e}")
+        logger.info("   Install: pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp")
+
     # Show LLM provider information (phase-specific)
     logger.info("LLM Configuration:")
     logger.info(f"  📋 Planning Phase: {config.planner_provider.upper()}")
